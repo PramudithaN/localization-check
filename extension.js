@@ -11,7 +11,8 @@ const ignoredValue = value =>
     /^https?:\/\//.test(value) ||
     /^#[0-9a-f]{3,8}$/i.test(value) ||
     /^[{}$()[\]\\/_.:0-9-]+$/.test(value) ||
-    /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key)$/.test(value);
+    /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key)$/.test(value) ||
+    /\$\{/.test(value);
 
 const ATTRIBUTE_PATTERN =
     /\b(label|title|placeholder|tooltip|aria-label|alt|description|helperText|buttonText)\s*=\s*["']([^"']+)["']/gi;
@@ -135,6 +136,7 @@ function findStandaloneJsxTextRange(document, lineNumber) {
 
     if (
         !value ||
+        !/[A-Za-z]/.test(value) ||
         ignoredValue(value) ||
         /^[a-z][A-Za-z0-9]*$/.test(value) && /[A-Z]/.test(value) ||
         /[<>{};=]/.test(value) ||
