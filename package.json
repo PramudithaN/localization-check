@@ -1,0 +1,59 @@
+{
+  "name": "localization-check",
+  "displayName": "Localization Check",
+  "description": "Flags hardcoded user-facing strings and missing translation keys in this repo's locale JSON files",
+  "version": "0.1.0",
+  "publisher": "localizationFinder",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pramudithan/localization-check.git"
+  },
+  "icon": "images/LF-ico.jpg",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Linters"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "localizationCheck.run",
+        "title": "Localization: Run Full Check (git staged)"
+      },
+      {
+        "command": "localizationCheck.scanFile",
+        "title": "Localization: Re-scan Current File"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "localizationCheck.run" },
+        { "command": "localizationCheck.scanFile" }
+      ]
+    },
+    "configuration": {
+      "title": "Localization Check",
+      "properties": {
+        "localizationCheck.scriptPath": {
+          "type": "string",
+          "default": "scripts/check-localization.js",
+          "description": "Path to check-localization.js, relative to the workspace root."
+        },
+        "localizationCheck.liveScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "Underline hardcoded strings live as you edit .ts/.tsx/.js/.jsx files (in addition to the git-staged check run via the command)."
+        },
+        "localizationCheck.warnOnStage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a warning notification when files staged for commit contain hardcoded text that isn't localized. This is a heads-up only — it does not block the commit itself; use the pre-commit hook for that."
+        }
+      }
+    }
+  }
+}
