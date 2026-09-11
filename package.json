@@ -1,8 +1,8 @@
 {
   "name": "localization-check",
   "displayName": "Localization Check",
-  "description": "Flags hardcoded user-facing strings and missing translation keys in this repo's locale JSON files",
-  "version": "0.1.0",
+  "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
+  "version": "0.1.1",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -41,17 +41,28 @@
         "localizationCheck.scriptPath": {
           "type": "string",
           "default": "scripts/check-localization.js",
-          "description": "Path to check-localization.js, relative to the workspace root."
+          "description": "Optional path to a localization check script in the scanned project, relative to the workspace root. Used by the full-check command."
         },
         "localizationCheck.liveScan": {
           "type": "boolean",
           "default": true,
-          "description": "Underline hardcoded strings live as you edit .ts/.tsx/.js/.jsx files (in addition to the git-staged check run via the command)."
+          "description": "Underline hardcoded strings live as you edit .ts/.tsx/.js/.jsx files."
+        },
+        "localizationCheck.diagnosticSeverity": {
+          "type": "string",
+          "enum": ["error", "warning"],
+          "default": "error",
+          "description": "Severity used for live diagnostics in the Problems panel. Use 'error' to make unlocalized text show as an error."
+        },
+        "localizationCheck.liveScanOnlyChangedFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Only show live localization diagnostics for files changed in Git or unsaved editor buffers. Disable this to scan every open file."
         },
         "localizationCheck.warnOnStage": {
           "type": "boolean",
           "default": true,
-          "description": "Show a warning notification when files staged for commit contain hardcoded text that isn't localized. This is a heads-up only — it does not block the commit itself; use the pre-commit hook for that."
+          "description": "Show a warning notification when files staged for commit contain hardcoded text that isn't localized. Requires the optional scriptPath script to exist in the scanned project."
         }
       }
     }

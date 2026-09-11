@@ -28,6 +28,36 @@ const RELEVANT_LANGUAGES = new Set([
     "typescriptreact",
 ]);
 
+function getDiagnosticSeverity() {
+    const configuredSeverity = vscode.workspace
+        .getConfiguration("localizationCheck")
+        .get("diagnosticSeverity", "error");
+
+    return configuredSeverity === "warning"
+        ? vscode.DiagnosticSeverity.Warning
+        : vscode.DiagnosticSeverity.Error;
+}
+
+function sameFile(left, right) {
+    return path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase();
+}
+
+function isDocumentChanged(document) {
+    if (document.isDirty) return true;
+
+    const gitAPI = getGitAPI();
+    if (!gitAPI) return false;
+
+    return gitAPI.repositories.some(repo => {
+        const changes = [
+            ...repo.state.workingTreeChanges,
+            ...repo.state.indexChanges,
+        ];
+
+        return changes.some(change => sameFile(change.uri.fsPath, document.uri.fsPath));
+    });
+}
+
 function findHardcodedRangesInLine(lineText) {
     const hits = [];
 
@@ -36,9 +66,10 @@ function findHardcodedRangesInLine(lineText) {
     while ((match = ATTRIBUTE_PATTERN.exec(lineText))) {
         const value = match[2];
         if (!ignoredValue(value) && !/^\s*t\s*\(/.test(value)) {
+            const start = match.index + match[0].lastIndexOf(value);
             hits.push({
-                start: match.index,
-                end: match.index + match[0].length,
+                start,
+                end: start + value.length,
                 message: `Hardcoded text in "${match[1]}" attribute: "${value}". Use t("...") instead.`,
             });
         }
@@ -73,6 +104,59 @@ function findHardcodedRangesInLine(lineText) {
     return hits;
 }
 
+function getNearestNonEmptyLine(document, lineNumber, direction) {
+    for (let i = lineNumber + direction; i >= 0 && i < document.lineCount; i += direction) {
+        const text = document.lineAt(i).text.trim();
+        if (text) return text;
+    }
+
+    return "";
+}
+
+function isJsxBoundary(text) {
+    return /[>}\)]\s*$/.test(text) || /^<\/?[A-Za-z][\w.-]*(\s|>|$)/.test(text) || /^\{/.test(text);
+}
+
+function isInsideJsxOpeningTag(document, lineNumber) {
+    for (let i = lineNumber - 1; i >= 0; i--) {
+        const text = document.lineAt(i).text.trim();
+        if (!text) continue;
+        if (/^\/?>$/.test(text)) return false;
+        if (/^<\/[A-Za-z][\w.-]*/.test(text)) return false;
+        if (/^<[A-Za-z][\w.-]*(\s|$)/.test(text)) return true;
+    }
+
+    return false;
+}
+
+function findStandaloneJsxTextRange(document, lineNumber) {
+    const lineText = document.lineAt(lineNumber).text;
+    const value = lineText.trim();
+
+    if (
+        !value ||
+        ignoredValue(value) ||
+        /^[a-z][A-Za-z0-9]*$/.test(value) && /[A-Z]/.test(value) ||
+        /[<>{};=]/.test(value) ||
+        /^(import|export|const|let|var|return|if|for|while|switch|case|function|class)\b/.test(value)
+    ) {
+        return null;
+    }
+
+    if (isInsideJsxOpeningTag(document, lineNumber)) return null;
+
+    const previous = getNearestNonEmptyLine(document, lineNumber, -1);
+    const next = getNearestNonEmptyLine(document, lineNumber, 1);
+    if (!isJsxBoundary(previous) || !isJsxBoundary(next)) return null;
+
+    const start = lineText.indexOf(value);
+    return {
+        start,
+        end: start + value.length,
+        message: `Hardcoded JSX text: "${value}". Use t("...") instead.`,
+    };
+}
+
 // ---- diagnostics (live, per open file) ----
 
 function scanDocument(document, diagnostics) {
@@ -84,16 +168,24 @@ function scanDocument(document, diagnostics) {
         return;
     }
 
+    if (config.get("liveScanOnlyChangedFiles", true) && !isDocumentChanged(document)) {
+        diagnostics.delete(document.uri);
+        return;
+    }
+
     const results = [];
     for (let i = 0; i < document.lineCount; i++) {
         const line = document.lineAt(i);
         const hits = findHardcodedRangesInLine(line.text);
+        const standaloneJsxTextHit = findStandaloneJsxTextRange(document, i);
+        if (standaloneJsxTextHit) hits.push(standaloneJsxTextHit);
+
         hits.forEach(hit => {
             const range = new vscode.Range(i, hit.start, i, hit.end);
             const diagnostic = new vscode.Diagnostic(
                 range,
                 hit.message,
-                vscode.DiagnosticSeverity.Warning,
+                getDiagnosticSeverity(),
             );
             diagnostic.source = "localization-check";
             results.push(diagnostic);
@@ -220,6 +312,30 @@ function watchStagedChanges(context, outputChannel) {
     context.subscriptions.push(gitAPI.onDidOpenRepository(attachRepo));
 }
 
+function watchChangedFiles(context, diagnostics) {
+    const gitAPI = getGitAPI();
+    if (!gitAPI) return;
+
+    const timers = new Map();
+
+    function scanOpenDocuments() {
+        vscode.workspace.textDocuments.forEach(doc => scanDocument(doc, diagnostics));
+    }
+
+    function attachRepo(repo) {
+        context.subscriptions.push(
+            repo.state.onDidChange(() => {
+                const key = repo.rootUri.fsPath;
+                clearTimeout(timers.get(key));
+                timers.set(key, setTimeout(scanOpenDocuments, 600));
+            }),
+        );
+    }
+
+    gitAPI.repositories.forEach(attachRepo);
+    context.subscriptions.push(gitAPI.onDidOpenRepository(attachRepo));
+}
+
 // ---- activation ----
 
 function activate(context) {
@@ -264,6 +380,7 @@ function activate(context) {
     );
 
     watchStagedChanges(context, outputChannel);
+    watchChangedFiles(context, diagnostics);
 }
 
 function deactivate() {}

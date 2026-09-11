@@ -1,86 +1,88 @@
-# Localization Check (VS Code extension)
+# Localization Check
 
-Wraps your existing `scripts/check-localization.js` and adds live in-editor
-warnings for hardcoded user-facing strings.
+![VS Code Extension](https://img.shields.io/badge/VS%20Code-Extension-007ACC?style=for-the-badge&logo=visualstudiocode&logoColor=white)
+![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)
+![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Git](https://img.shields.io/badge/Git-Changed%20Files-F05032?style=for-the-badge&logo=git&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-## What it does
+A VS Code extension that flags hardcoded user-facing text in changed JavaScript and TypeScript files.
 
-- **Command: "Localization: Run Full Check (git staged)"** — runs your
-  actual `scripts/check-localization.js` against `git diff --cached`,
-  exactly like your pre-commit check does, and prints the result to an
-  output panel.
-- **Live diagnostics** — while editing `.ts` / `.tsx` / `.js` / `.jsx`
-  files, hardcoded labels/JSX text are underlined in the Problems panel
-  as you type/save (using the same detection rules as the script, just
-  applied to the whole open file instead of the staged diff).
-- **Command: "Localization: Re-scan Current File"** — manually re-run
-  the live scan on the active file.
-- **Automatic staging warning** — the moment you `git add` (or stage
-  via the Source Control panel) a file with hardcoded text, a warning
-  notification pops up with a "Show Details" button. It only fires
-  once per repo when the state transitions from clean → failing, so
-  it won't spam you while you keep editing. Turn this off with
-  `localizationCheck.warnOnStage: false`.
+## Features
 
-**Important:** this notification is a heads-up only — it does **not**
-block `git commit`. Nothing running inside VS Code reliably can,
-since a commit can happen from any git client, not just this editor.
-Your actual enforcement is still the pre-commit hook (husky) running
-`check-localization.js` at the git level — keep that as-is. This
-extension just surfaces the same problem earlier, before you even
-open a terminal.
+- Highlights hardcoded JSX text in `.js`, `.jsx`, `.ts`, and `.tsx` files.
+- Detects user-facing prop values such as `label`, `title`, `placeholder`, `tooltip`, `aria-label`, `alt`, `description`, `helperText`, and `buttonText`.
+- Detects object values such as `title: "Save"`, `label: "Name"`, and `text: "Continue"`.
+- Detects multiline JSX text, including text inside elements like `<kbd>` and text after spacing expressions like `{ " " }`.
+- Scans only files changed in Git or unsaved editor buffers by default.
+- Shows diagnostics as errors by default in the Problems panel.
 
-## Try it locally (free, no publishing needed)
+## Commands
 
-1. Unzip this folder somewhere.
-2. Open the folder in VS Code (`code localization-check-extension`).
-3. Press **F5**. This launches an "Extension Development Host" window
-   — a second VS Code window with the extension active.
-4. In that new window, open your actual project folder (the one
-   containing `scripts/check-localization.js`).
-5. Edit a `.tsx` file and add a hardcoded string like
-   `<button title="Submit now">` — you should see a warning squiggle.
-6. Run **Cmd/Ctrl+Shift+P → "Localization: Run Full Check"** to run the
-   real script against your staged changes.
-
-No `npm install` is needed — this extension has zero dependencies
-beyond the `vscode` API.
+- **Localization: Re-scan Current File**: manually scans the active file again.
 
 ## Configuration
 
-In your project's `.vscode/settings.json`:
+Add settings in your project's `.vscode/settings.json` when you want to customize the extension:
 
 ```json
 {
-  "localizationCheck.scriptPath": "scripts/check-localization.js",
-  "localizationCheck.liveScan": true
+  "localizationCheck.liveScan": true,
+  "localizationCheck.diagnosticSeverity": "error",
+  "localizationCheck.liveScanOnlyChangedFiles": true
 }
 ```
 
-## Installing it for real (so it's there every time, no F5 needed)
+### Settings
 
-You don't need to publish to the Marketplace to use this yourself or
-share it with your team.
+- `localizationCheck.liveScan`: enables or disables live scanning. Default: `true`.
+- `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
+- `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
 
-1. Install the packaging CLI once: `npm install -g @vscode/vsce`
-2. From this folder: `vsce package` — produces
-   `localization-check-0.1.0.vsix`
-3. Install it: `code --install-extension localization-check-0.1.0.vsix`
-   (or in VS Code: Extensions panel → `...` menu → "Install from VSIX")
+## Try It Locally
 
-Share the `.vsix` file with teammates and they can install it the same
-way — no Marketplace account, no cost.
+1. Open this extension folder in VS Code.
+2. Press `F5` to launch the Extension Development Host.
+3. In the new VS Code window, open a JavaScript or TypeScript project.
+4. Edit a changed `.tsx`, `.jsx`, `.ts`, or `.js` file.
+5. Add hardcoded UI text, for example:
 
-## Publishing to the Marketplace (optional, also free)
-
-Only needed if you want `ext install` / Marketplace search to find it.
-Requires a free Azure DevOps account for a Personal Access Token, then:
-
-```
-vsce login localisation.ex-publish
-vsce publish
+```tsx
+<button title="Submit now">Save</button>
 ```
 
-Before publishing, create the public repository at
-`https://github.com/pramudithan/localization-check` and create the
-`localisation.ex-publish` publisher in the Visual Studio Marketplace.
+The extension should underline `Submit now` and `Save` as localization errors.
+
+Clean, unchanged files are ignored by default. To scan every open file, set:
+
+```json
+{
+  "localizationCheck.liveScanOnlyChangedFiles": false
+}
+```
+
+## Install From VSIX
+
+1. Install the VS Code packaging tool:
+
+```bash
+npm install -g @vscode/vsce
+```
+
+2. Package the extension from this folder:
+
+```bash
+vsce package
+```
+
+3. Install the generated `.vsix` file:
+
+```bash
+code --install-extension localization-check-0.1.1.vsix
+```
+
+You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
+
+## Development
+
+This extension has no runtime npm dependencies. The main extension code is in `extension.js`, and contribution metadata is defined in `package.json`.
