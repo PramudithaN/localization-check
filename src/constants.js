@@ -13,7 +13,11 @@ const TEXT_PATTERN = />\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*</g;
 // Plain object-literal properties, e.g. title: t("Action") in a column/config def
 // (as opposed to a JSX attribute, which uses `=` and is covered above).
 const OBJECT_PROPERTY_PATTERN =
-    /\b(label|title|placeholder|tooltip|description|header|text|name|buttonText|helperText)\s*:\s*["']([^"']+)["']/gi;
+    /\b(label|title|placeholder|tooltip|description|header|text|name|buttonText|helperText|message)\s*:\s*["']([^"']+)["']/gi;
+
+// Notification and toast functions where 1st argument is type/status and subsequent arguments are user-facing messages.
+const NOTIFICATION_FUNCTION_PATTERN =
+    /\b(showNotification|showToast|notify|displayNotification|openNotification)\s*\(/gi;
 
 const CONFIG_SECTION = "localizationCheck";
 const SOURCE_NAME = "localization-check";
@@ -24,6 +28,7 @@ module.exports = {
     ATTRIBUTE_PATTERN,
     TEXT_PATTERN,
     OBJECT_PROPERTY_PATTERN,
+    NOTIFICATION_FUNCTION_PATTERN,
     CONFIG_SECTION,
     SOURCE_NAME,
     DEFAULT_SCRIPT_PATH,

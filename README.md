@@ -11,7 +11,8 @@
 
 - Highlights hardcoded JSX text in `.js`, `.jsx`, `.ts`, and `.tsx` files.
 - Detects user-facing prop values such as `label`, `title`, `placeholder`, `tooltip`, `aria-label`, `alt`, `description`, `helperText`, and `buttonText`.
-- Detects object values such as `title: "Save"`, `label: "Name"`, and `text: "Continue"`.
+- Detects object values such as `title: "Save"`, `label: "Name"`, `text: "Continue"`, and `message: "Updated"`.
+- Detects notification and toast function arguments (e.g. `showNotification("error", "Failed to connect", "Try again later")`), skipping the 1st type/status argument and detecting subsequent user-facing messages.
 - Detects multiline JSX text, including text inside elements like `<kbd>` and text after spacing expressions like `{ " " }`.
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.

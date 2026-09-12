@@ -2,6 +2,7 @@ const {
     ATTRIBUTE_PATTERN,
     TEXT_PATTERN,
     OBJECT_PROPERTY_PATTERN,
+    NOTIFICATION_FUNCTION_PATTERN,
 } = require("./constants");
 
 /**
@@ -20,6 +21,48 @@ function ignoredValue(value) {
         /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key)$/.test(value) ||
         /\$\{/.test(value)
     );
+}
+
+/**
+ * Splits function arguments respecting quotes and brackets.
+ * @param {string} argsString
+ * @returns {Array<{ text: string, offset: number }>}
+ */
+function parseFunctionArguments(argsString) {
+    const args = [];
+    let current = "";
+    let inQuote = null;
+    let depth = 0;
+    let startIndex = 0;
+
+    for (let i = 0; i < argsString.length; i++) {
+        const char = argsString[i];
+        if (inQuote) {
+            current += char;
+            if (char === inQuote && argsString[i - 1] !== "\\") {
+                inQuote = null;
+            }
+        } else if (char === '"' || char === "'" || char === "`") {
+            inQuote = char;
+            current += char;
+        } else if (char === "(" || char === "{" || char === "[") {
+            depth++;
+            current += char;
+        } else if (char === ")" || char === "}" || char === "]") {
+            depth--;
+            current += char;
+        } else if (char === "," && depth === 0) {
+            args.push({ text: current, offset: startIndex });
+            current = "";
+            startIndex = i + 1;
+        } else {
+            current += char;
+        }
+    }
+    if (current.trim().length > 0 || args.length > 0) {
+        args.push({ text: current, offset: startIndex });
+    }
+    return args;
 }
 
 /**
@@ -67,6 +110,63 @@ function findHardcodedRangesInLine(lineText) {
                 end: start + value.length,
                 message: `Hardcoded value for "${match[1]}": "${value}". Use t("...") instead.`,
             });
+        }
+    }
+
+    NOTIFICATION_FUNCTION_PATTERN.lastIndex = 0;
+    while ((match = NOTIFICATION_FUNCTION_PATTERN.exec(lineText))) {
+        const fnName = match[1];
+        const openParenIndex = match.index + match[0].length - 1;
+        let depth = 1;
+        let inQuote = null;
+        let closeParenIndex = -1;
+
+        for (let i = openParenIndex + 1; i < lineText.length; i++) {
+            const char = lineText[i];
+            if (inQuote) {
+                if (char === inQuote && lineText[i - 1] !== "\\") {
+                    inQuote = null;
+                }
+            } else if (char === '"' || char === "'" || char === "`") {
+                inQuote = char;
+            } else if (char === "(" || char === "{" || char === "[") {
+                depth++;
+            } else if (char === ")" || char === "}" || char === "]") {
+                depth--;
+                if (depth === 0) {
+                    closeParenIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (closeParenIndex !== -1) {
+            const argsStr = lineText.slice(openParenIndex + 1, closeParenIndex);
+            const argsStartOffset = openParenIndex + 1;
+            const args = parseFunctionArguments(argsStr);
+
+            // Skip the first argument (type/status e.g. "error", "success", "info")
+            for (let i = 1; i < args.length; i++) {
+                const arg = args[i];
+                const trimmed = arg.text.trim();
+                if (/^\s*(?:i18n\.)?t\s*\(/.test(trimmed)) continue;
+
+                const strMatch = /^["']([^"']+)["']$/.exec(trimmed);
+                if (strMatch) {
+                    const value = strMatch[1];
+                    if (!ignoredValue(value)) {
+                        const strOffsetInArg = arg.text.indexOf(value);
+                        const start = argsStartOffset + arg.offset + strOffsetInArg;
+                        hits.push({
+                            start,
+                            end: start + value.length,
+                            message: `Hardcoded text in "${fnName}" call: "${value}". Use t("...") instead.`,
+                        });
+                    }
+                }
+            }
+
+            NOTIFICATION_FUNCTION_PATTERN.lastIndex = closeParenIndex + 1;
         }
     }
 
@@ -153,6 +253,7 @@ function findStandaloneJsxTextRange(document, lineNumber) {
 
 module.exports = {
     ignoredValue,
+    parseFunctionArguments,
     findHardcodedRangesInLine,
     getNearestNonEmptyLine,
     isJsxBoundary,
