@@ -10,10 +10,11 @@ const ATTRIBUTE_PATTERN =
 
 const TEXT_PATTERN = />\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*</g;
 
-// Plain object-literal properties, e.g. title: t("Action") in a column/config def
+// Plain object-literal properties (e.g. title: "...", label: "...") in a column/config def
 // (as opposed to a JSX attribute, which uses `=` and is covered above).
+// Note: "name" is intentionally excluded as it commonly represents technical form/field/entity identifiers.
 const OBJECT_PROPERTY_PATTERN =
-    /\b(label|title|placeholder|tooltip|description|header|text|name|buttonText|helperText|message)\s*:\s*["']([^"']+)["']/gi;
+    /\b(label|title|placeholder|tooltip|description|header|text|buttonText|helperText|message|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText)\s*:\s*["']([^"']+)["']/gi;
 
 // Notification and toast functions where 1st argument is type/status and subsequent arguments are user-facing messages.
 const NOTIFICATION_FUNCTION_PATTERN =

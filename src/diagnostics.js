@@ -1,6 +1,10 @@
 const vscode = require("vscode");
 const { RELEVANT_LANGUAGES, CONFIG_SECTION, SOURCE_NAME } = require("./constants");
-const { findHardcodedRangesInLine, findStandaloneJsxTextRange } = require("./detector");
+const {
+    findHardcodedRangesInLine,
+    findStandaloneJsxTextRange,
+    findNotificationHits,
+} = require("./detector");
 const { isDocumentChanged } = require("./git");
 
 /**
@@ -37,6 +41,8 @@ function scanDocument(document, diagnostics) {
     }
 
     const results = [];
+    const severity = getDiagnosticSeverity();
+
     for (let i = 0; i < document.lineCount; i++) {
         const line = document.lineAt(i);
         const hits = findHardcodedRangesInLine(line.text);
@@ -48,12 +54,28 @@ function scanDocument(document, diagnostics) {
             const diagnostic = new vscode.Diagnostic(
                 range,
                 hit.message,
-                getDiagnosticSeverity(),
+                severity,
             );
             diagnostic.source = SOURCE_NAME;
             results.push(diagnostic);
         });
     }
+
+    // Multiline and single-line notification function checks across the document
+    const fullText = document.getText();
+    const notificationHits = findNotificationHits(fullText);
+    notificationHits.forEach(hit => {
+        const startPos = document.positionAt(hit.startOffset);
+        const endPos = document.positionAt(hit.endOffset);
+        const range = new vscode.Range(startPos, endPos);
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            hit.message,
+            severity,
+        );
+        diagnostic.source = SOURCE_NAME;
+        results.push(diagnostic);
+    });
 
     diagnostics.set(document.uri, results);
 }

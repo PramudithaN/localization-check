@@ -5,21 +5,42 @@ const {
     NOTIFICATION_FUNCTION_PATTERN,
 } = require("./constants");
 
+const NOTIFICATION_STATUS_KEYWORDS = new Set([
+    "error",
+    "success",
+    "info",
+    "warning",
+    "warn",
+    "loading",
+    "default",
+    "open",
+]);
+
 /**
- * Checks if a string value should be ignored (e.g. URLs, colors, IDs, punctuation, etc.).
+ * Checks if a string value should be ignored (e.g. URLs, colors, IDs, punctuation, identifiers, etc.).
  * @param {string} value
  * @returns {boolean}
  */
 function ignoredValue(value) {
+    if (!value || typeof value !== "string") return true;
+    const trimmed = value.trim();
+    if (trimmed.length < 2) return true;
+
     return (
-        !value ||
-        value.length < 2 ||
-        /^[A-Z0-9_./:-]+$/.test(value) ||
-        /^https?:\/\//.test(value) ||
-        /^#[0-9a-f]{3,8}$/i.test(value) ||
-        /^[{}$()[\]\\/_.:0-9-]+$/.test(value) ||
-        /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key)$/.test(value) ||
-        /\$\{/.test(value)
+        /^[A-Z0-9_./:-]+$/.test(trimmed) ||
+        /^https?:\/\//i.test(trimmed) ||
+        /^#[0-9a-f]{3,8}$/i.test(trimmed) ||
+        /^[{}$()[\]\\/_.:0-9%+-]+$/.test(trimmed) ||
+        // camelCase identifiers without whitespace (e.g. amountOrPercentageValue, feeCategoryName)
+        /^[a-z]+(?:[A-Z0-9][a-z0-9]*)+$/.test(trimmed) ||
+        /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key|Name|Value|Url|URL|Uri|URI|Path|Ref|Index|Status)$/.test(trimmed) ||
+        // snake_case identifiers (e.g. user_id, fee_category_name)
+        /^[a-z0-9]+(?:_[a-z0-9]+)+$/.test(trimmed) ||
+        // kebab-case identifiers without spaces (e.g. item-container, btn-primary)
+        /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(trimmed) ||
+        // Dotted object property paths or config keys (e.g. settings.theme.mode)
+        /^[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+$/.test(trimmed) ||
+        /\$\{/.test(trimmed)
     );
 }
 
@@ -59,10 +80,32 @@ function parseFunctionArguments(argsString) {
             current += char;
         }
     }
-    if (current.trim().length > 0 || args.length > 0) {
+    if (current.trim().length > 0) {
         args.push({ text: current, offset: startIndex });
     }
     return args;
+}
+
+/**
+ * Finds the index where a line comment (//) begins, ignoring slashes inside quotes.
+ * @param {string} lineText
+ * @returns {number}
+ */
+function getCommentIndexInLine(lineText) {
+    let inQuote = null;
+    for (let i = 0; i < lineText.length; i++) {
+        const char = lineText[i];
+        if (inQuote) {
+            if (char === inQuote && lineText[i - 1] !== "\\") {
+                inQuote = null;
+            }
+        } else if (char === '"' || char === "'" || char === "`") {
+            inQuote = char;
+        } else if (char === "/" && lineText[i + 1] === "/") {
+            return i;
+        }
+    }
+    return -1;
 }
 
 /**
@@ -72,12 +115,19 @@ function parseFunctionArguments(argsString) {
  */
 function findHardcodedRangesInLine(lineText) {
     const hits = [];
+    const trimmedLine = lineText.trim();
+    if (trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*")) {
+        return hits;
+    }
+
+    const commentIndex = getCommentIndexInLine(lineText);
 
     let match;
     ATTRIBUTE_PATTERN.lastIndex = 0;
     while ((match = ATTRIBUTE_PATTERN.exec(lineText))) {
+        if (commentIndex !== -1 && match.index >= commentIndex) break;
         const value = match[2];
-        if (!ignoredValue(value) && !/^\s*t\s*\(/.test(value)) {
+        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].lastIndexOf(value);
             hits.push({
                 start,
@@ -89,8 +139,9 @@ function findHardcodedRangesInLine(lineText) {
 
     TEXT_PATTERN.lastIndex = 0;
     while ((match = TEXT_PATTERN.exec(lineText))) {
+        if (commentIndex !== -1 && match.index >= commentIndex) break;
         const value = match[1].trim();
-        if (!ignoredValue(value)) {
+        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].indexOf(match[1]);
             hits.push({
                 start,
@@ -102,8 +153,9 @@ function findHardcodedRangesInLine(lineText) {
 
     OBJECT_PROPERTY_PATTERN.lastIndex = 0;
     while ((match = OBJECT_PROPERTY_PATTERN.exec(lineText))) {
+        if (commentIndex !== -1 && match.index >= commentIndex) break;
         const value = match[2];
-        if (!ignoredValue(value)) {
+        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].lastIndexOf(match[2]);
             hits.push({
                 start,
@@ -113,22 +165,40 @@ function findHardcodedRangesInLine(lineText) {
         }
     }
 
+    return hits;
+}
+
+/**
+ * Finds hardcoded strings in notification and toast function calls across full (multiline) document text.
+ * @param {string} fullText
+ * @returns {Array<{ startOffset: number, endOffset: number, message: string }>}
+ */
+function findNotificationHits(fullText) {
+    const hits = [];
     NOTIFICATION_FUNCTION_PATTERN.lastIndex = 0;
-    while ((match = NOTIFICATION_FUNCTION_PATTERN.exec(lineText))) {
+    let match;
+
+    while ((match = NOTIFICATION_FUNCTION_PATTERN.exec(fullText))) {
         const fnName = match[1];
         const openParenIndex = match.index + match[0].length - 1;
         let depth = 1;
         let inQuote = null;
         let closeParenIndex = -1;
 
-        for (let i = openParenIndex + 1; i < lineText.length; i++) {
-            const char = lineText[i];
+        for (let i = openParenIndex + 1; i < fullText.length; i++) {
+            const char = fullText[i];
             if (inQuote) {
-                if (char === inQuote && lineText[i - 1] !== "\\") {
+                if (char === inQuote && fullText[i - 1] !== "\\") {
                     inQuote = null;
                 }
             } else if (char === '"' || char === "'" || char === "`") {
                 inQuote = char;
+            } else if (char === "/" && fullText[i + 1] === "/") {
+                const nextNewline = fullText.indexOf("\n", i + 2);
+                i = nextNewline !== -1 ? nextNewline : fullText.length;
+            } else if (char === "/" && fullText[i + 1] === "*") {
+                const closeComment = fullText.indexOf("*/", i + 2);
+                i = closeComment !== -1 ? closeComment + 1 : fullText.length;
             } else if (char === "(" || char === "{" || char === "[") {
                 depth++;
             } else if (char === ")" || char === "}" || char === "]") {
@@ -141,25 +211,43 @@ function findHardcodedRangesInLine(lineText) {
         }
 
         if (closeParenIndex !== -1) {
-            const argsStr = lineText.slice(openParenIndex + 1, closeParenIndex);
+            const argsStr = fullText.slice(openParenIndex + 1, closeParenIndex);
             const argsStartOffset = openParenIndex + 1;
             const args = parseFunctionArguments(argsStr);
 
-            // Skip the first argument (type/status e.g. "error", "success", "info")
-            for (let i = 1; i < args.length; i++) {
+            // If the first argument is a status/type keyword, skip it and check subsequent user-facing messages
+            let startArgIndex = 0;
+            if (args.length > 1) {
+                const firstArgClean = args[0].text.trim().replace(/^["']|["']$/g, "").toLowerCase();
+                if (NOTIFICATION_STATUS_KEYWORDS.has(firstArgClean)) {
+                    startArgIndex = 1;
+                }
+            }
+
+            for (let i = startArgIndex; i < args.length; i++) {
                 const arg = args[i];
                 const trimmed = arg.text.trim();
                 if (/^\s*(?:i18n\.)?t\s*\(/.test(trimmed)) continue;
 
-                const strMatch = /^["']([^"']+)["']$/.exec(trimmed);
-                if (strMatch) {
-                    const value = strMatch[1];
+                // Match quoted string literals within the argument
+                const strRegex = /(["'])((?:\\.|(?!\1)[^\\])*)\1/g;
+                let strMatch;
+                while ((strMatch = strRegex.exec(arg.text))) {
+                    const value = strMatch[2];
+                    const quoteIndexInArg = strMatch.index;
+
+                    // Skip if string is inside a localization call e.g. t("...")
+                    const beforeQuote = arg.text.slice(0, quoteIndexInArg);
+                    if (/(?:^|\W)(?:i18n\.)?t\s*\(\s*$/.test(beforeQuote)) {
+                        continue;
+                    }
+
                     if (!ignoredValue(value)) {
-                        const strOffsetInArg = arg.text.indexOf(value);
-                        const start = argsStartOffset + arg.offset + strOffsetInArg;
+                        const start = argsStartOffset + arg.offset + quoteIndexInArg + 1;
+                        const end = start + value.length;
                         hits.push({
-                            start,
-                            end: start + value.length,
+                            startOffset: start,
+                            endOffset: end,
                             message: `Hardcoded text in "${fnName}" call: "${value}". Use t("...") instead.`,
                         });
                     }
@@ -195,7 +283,15 @@ function getNearestNonEmptyLine(document, lineNumber, direction) {
  * @returns {boolean}
  */
 function isJsxBoundary(text) {
-    return /[>}\)]\s*$/.test(text) || /^<\/?[A-Za-z][\w.-]*(\s|>|$)/.test(text) || /^\{/.test(text);
+    if (!text || typeof text !== "string") return false;
+    const trimmed = text.trim();
+    if (/(?<!=)>\s*$/.test(trimmed) && (/^<\/?[A-Za-z][\w.-]*(\s|>|$)/.test(trimmed) || /^<>/.test(trimmed))) {
+        return true;
+    }
+    if (/\/>\s*$/.test(trimmed)) return true;
+    if (/^<\/[A-Za-z][\w.-]*>\s*$/.test(trimmed)) return true;
+    if (/^\{\s*$/.test(trimmed) || /^\}\s*$/.test(trimmed)) return true;
+    return false;
 }
 
 /**
@@ -230,9 +326,16 @@ function findStandaloneJsxTextRange(document, lineNumber) {
         !value ||
         !/[A-Za-z]/.test(value) ||
         ignoredValue(value) ||
-        (/^[a-z][A-Za-z0-9]*$/.test(value) && /[A-Z]/.test(value)) ||
-        /[<>{};=]/.test(value) ||
-        /^(import|export|const|let|var|return|if|for|while|switch|case|function|class)\b/.test(value)
+        /(?:^|\W)(?:i18n\.)?t\s*\(/.test(value) ||
+        // Ignore lines with code keywords
+        /^(import|export|const|let|var|return|if|else|for|while|switch|case|function|class|type|interface|throw|try|catch|finally|break|continue|default)\b/.test(value) ||
+        // Ignore lines with object properties, TS type annotations, or method calls
+        /^[a-zA-Z_$][\w$]*\s*:/.test(value) ||
+        /\.[a-zA-Z_$][\w$]*/.test(value) ||
+        // Ignore lines with code syntax/brackets/operators
+        /[<>{};=()\[\]`'"/\\]/.test(value) ||
+        /[+\-*%|^&!~?:,]/.test(value) ||
+        /=>/.test(value)
     ) {
         return null;
     }
@@ -255,6 +358,7 @@ module.exports = {
     ignoredValue,
     parseFunctionArguments,
     findHardcodedRangesInLine,
+    findNotificationHits,
     getNearestNonEmptyLine,
     isJsxBoundary,
     isInsideJsxOpeningTag,
