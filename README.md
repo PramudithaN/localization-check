@@ -5,7 +5,7 @@
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
 
-A VS Code extension that flags hardcoded user-facing text in changed JavaScript and TypeScript files.
+> A VS Code extension that flags hardcoded user-facing text in changed JavaScript and TypeScript files.
 
 ## Features
 
@@ -18,6 +18,7 @@ A VS Code extension that flags hardcoded user-facing text in changed JavaScript 
 
 ## Commands
 
+- **Localization: Run Full Check (git staged)**: executes the project's localization check script on git-staged changes and displays results in the output panel.
 - **Localization: Re-scan Current File**: manually scans the active file again.
 
 ## Configuration
@@ -26,17 +27,21 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 
 ```json
 {
+  "localizationCheck.scriptPath": "scripts/check-localization.js",
   "localizationCheck.liveScan": true,
   "localizationCheck.diagnosticSeverity": "error",
-  "localizationCheck.liveScanOnlyChangedFiles": true
+  "localizationCheck.liveScanOnlyChangedFiles": true,
+  "localizationCheck.warnOnStage": true
 }
 ```
 
 ### Settings
 
+- `localizationCheck.scriptPath`: optional relative path to a localization check script in the workspace root. Default: `"scripts/check-localization.js"`.
 - `localizationCheck.liveScan`: enables or disables live scanning. Default: `true`.
 - `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
 - `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
+- `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
 
 ## Try It Locally
 
@@ -82,6 +87,14 @@ code --install-extension localization-check-0.1.2.vsix
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
 
-## Development
+## Development & Architecture
 
-This extension has no runtime npm dependencies. The main extension code is in `extension.js`, and contribution metadata is defined in `package.json`.
+This extension has no runtime npm dependencies. The codebase is organized modularly under `src/`:
+
+- `extension.js`: Main entry point and activation lifecycle handler.
+- `src/constants.js`: Shared regex patterns, configuration keys, and language targets.
+- `src/detector.js`: Detection rules for attributes, JSX text, and object properties.
+- `src/git.js`: Git extension integration and change detection watchers.
+- `src/diagnostics.js`: Diagnostics collection and severity mapping.
+- `src/commands.js`: Command handlers for manual and workspace checks.
+- `package.json`: Extension manifest and configuration contribution settings.
