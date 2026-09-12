@@ -82,7 +82,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.1.2.vsix
+code --install-extension localization-check-0.1.3.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
