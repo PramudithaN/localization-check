@@ -3,6 +3,7 @@ const { SOURCE_NAME } = require("./src/constants");
 const { scanDocument, scanAllOpenDocuments } = require("./src/diagnostics");
 const { runFullCheck, scanCurrentFile } = require("./src/commands");
 const { watchStagedChanges, watchChangedFiles } = require("./src/git");
+const { registerInterceptors } = require("./src/interceptor");
 
 /**
  * Activates the Localization Check extension.
@@ -22,6 +23,9 @@ function activate(context) {
             scanCurrentFile(diagnostics),
         ),
     );
+
+    // Register terminal and task interceptors
+    registerInterceptors(context, diagnostics);
 
     // Initial scan of currently open documents
     scanAllOpenDocuments(diagnostics);

@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -11,7 +11,7 @@
   "icon": "images/LF-ico.png",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.84.0"
   },
   "categories": ["Linters"],
   "activationEvents": [
@@ -63,6 +63,16 @@
           "type": "boolean",
           "default": true,
           "description": "Show a warning notification when files staged for commit contain hardcoded text that isn't localized. Requires the optional scriptPath script to exist in the scanned project."
+        },
+        "localizationCheck.blockTerminalCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically stops terminal dev and build commands (e.g. yarn start, npm run dev, yarn build) when unlocalized strings are detected."
+        },
+        "localizationCheck.blockBuildTasks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically cancels VS Code build/start tasks (Ctrl+Shift+B) and debug sessions when unlocalized strings are detected."
         }
       }
     }

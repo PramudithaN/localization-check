@@ -13,9 +13,10 @@
 - Detects user-facing prop values such as `label`, `title`, `placeholder`, `tooltip`, `aria-label`, `alt`, `description`, `helperText`, and `buttonText`.
 - Detects object values such as `title: "Save"`, `label: "Name"`, `text: "Continue"`, and `message: "Updated"`.
 - Detects notification and toast function arguments (e.g. `showNotification("error", "Failed to connect", "Try again later")`), skipping the 1st type/status argument and detecting subsequent user-facing messages.
-- Detects multiline JSX text, including text inside elements like `<kbd>` and text after spacing expressions like `{ " " }`.
+- Multiline and single-line notification function checks (e.g. `showNotification`).
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.
+- **Terminal & Task Interceptor**: Automatically halts terminal commands (like `yarn start`, `npm run dev`, `yarn build`) and cancels VS Code build tasks/debug sessions when unlocalized text is detected.
 
 ## Commands
 
@@ -32,7 +33,9 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
   "localizationCheck.liveScan": true,
   "localizationCheck.diagnosticSeverity": "error",
   "localizationCheck.liveScanOnlyChangedFiles": true,
-  "localizationCheck.warnOnStage": true
+  "localizationCheck.warnOnStage": true,
+  "localizationCheck.blockTerminalCommands": true,
+  "localizationCheck.blockBuildTasks": true
 }
 ```
 
@@ -43,6 +46,8 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
 - `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
 - `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
+- `localizationCheck.blockTerminalCommands`: stops dev/build terminal commands (e.g. `yarn start`, `npm run dev`, `yarn build`) when unlocalized strings are detected. Default: `true`.
+- `localizationCheck.blockBuildTasks`: cancels VS Code build tasks (`Ctrl+Shift+B`) and debug launches (`F5`) when unlocalized strings are detected. Default: `true`.
 
 ## Try It Locally
 
@@ -83,7 +88,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.1.3.vsix
+code --install-extension localization-check-0.1.6.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
@@ -97,5 +102,6 @@ This extension has no runtime npm dependencies. The codebase is organized modula
 - `src/detector.js`: Detection rules for attributes, JSX text, and object properties.
 - `src/git.js`: Git extension integration and change detection watchers.
 - `src/diagnostics.js`: Diagnostics collection and severity mapping.
+- `src/interceptor.js`: Terminal shell execution, VS Code build task, and debug session interceptors.
 - `src/commands.js`: Command handlers for manual and workspace checks.
 - `package.json`: Extension manifest and configuration contribution settings.
