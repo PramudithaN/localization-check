@@ -88,25 +88,9 @@ function scanAllOpenDocuments(diagnostics) {
     vscode.workspace.textDocuments.forEach(doc => scanDocument(doc, diagnostics));
 }
 
-/**
- * Checks whether any localization diagnostics are currently present.
- * @param {import("vscode").DiagnosticCollection} diagnostics
- * @returns {boolean}
- */
-function hasLocalizationErrors(diagnostics) {
-    let hasErrors = false;
-    diagnostics.forEach((_uri, diagList) => {
-        if (diagList && diagList.length > 0) {
-            hasErrors = true;
-        }
-    });
-    return hasErrors;
-}
-
 module.exports = {
     getDiagnosticSeverity,
     scanDocument,
     scanAllOpenDocuments,
-    hasLocalizationErrors,
 };
 
