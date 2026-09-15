@@ -23,15 +23,55 @@ function isBlockedCommandLine(commandLine) {
  */
 function isBlockedTask(task) {
     if (!task) return false;
-    if (task.group === vscode.TaskGroup.Build || task.group === vscode.TaskGroup.Rebuild) {
+
+    // Check TaskGroup enum, object structure, or custom group ids
+    if (
+        task.group === vscode.TaskGroup.Build ||
+        task.group === vscode.TaskGroup.Rebuild ||
+        (task.group &&
+            typeof task.group === "object" &&
+            (task.group.id === "build" ||
+                task.group.id === "rebuild" ||
+                task.group._id === "build" ||
+                task.group._id === "rebuild" ||
+                task.group.isDefault))
+    ) {
         return true;
     }
+
     const name = (task.name || "").toLowerCase();
     const detail = (task.detail || "").toLowerCase();
-    return (
-        /\b(build|start|dev|compile|serve)\b/i.test(name) ||
-        /\b(build|start|dev|compile|serve)\b/i.test(detail)
-    );
+    const source = (task.source || "").toLowerCase();
+
+    if (
+        /\b(build|start|dev|compile|serve|watch|package|bundle)\b/i.test(name) ||
+        /\b(build|start|dev|compile|serve|watch|package|bundle)\b/i.test(detail) ||
+        /\b(build|start|dev|compile|serve|watch|package|bundle)\b/i.test(source)
+    ) {
+        return true;
+    }
+
+    // Check task execution commands
+    if (task.execution) {
+        const execution = task.execution;
+        if (execution.commandLine && BLOCKED_COMMAND_REGEX.test(execution.commandLine)) {
+            return true;
+        }
+        if (execution.command && typeof execution.command === "string") {
+            const fullCmd = [execution.command, ...(execution.args || [])].join(" ");
+            if (BLOCKED_COMMAND_REGEX.test(fullCmd)) {
+                return true;
+            }
+        }
+        if (execution.process && typeof execution.process === "string") {
+            const fullCmd = [execution.process, ...(execution.args || [])].join(" ");
+            if (BLOCKED_COMMAND_REGEX.test(fullCmd)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -78,22 +118,48 @@ function registerInterceptors(context, diagnostics) {
     }
 
     // 2. VS Code Task Execution Interceptor (Ctrl+Shift+B / Run Task)
+    const blockedExecutions = new WeakSet();
+
+    function handleTaskExecution(execution) {
+        const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        if (!config.get("blockBuildTasks", true)) return;
+
+        const task = execution ? execution.task : null;
+        if (!isBlockedTask(task)) return;
+
+        scanAllOpenDocuments(diagnostics);
+
+        if (hasLocalizationErrors(diagnostics)) {
+            try {
+                execution.terminate();
+            } catch {
+                // Ignore termination errors if process already exited
+            }
+
+            if (!blockedExecutions.has(execution)) {
+                blockedExecutions.add(execution);
+                notifyBlockedAction(
+                    `Task "${task ? task.name : "Build"}" was cancelled: Hardcoded unlocalized strings detected in changed files.`,
+                );
+            }
+        }
+    }
+
     if (vscode.tasks && typeof vscode.tasks.onDidStartTask === "function") {
         context.subscriptions.push(
             vscode.tasks.onDidStartTask(event => {
-                const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-                if (!config.get("blockBuildTasks", true)) return;
+                if (event.execution) {
+                    handleTaskExecution(event.execution);
+                }
+            }),
+        );
+    }
 
-                const task = event.execution ? event.execution.task : null;
-                if (!isBlockedTask(task)) return;
-
-                scanAllOpenDocuments(diagnostics);
-
-                if (hasLocalizationErrors(diagnostics)) {
-                    event.execution.terminate();
-                    notifyBlockedAction(
-                        `Task "${task ? task.name : "Build"}" was cancelled: Hardcoded unlocalized strings detected in changed files.`,
-                    );
+    if (vscode.tasks && typeof vscode.tasks.onDidStartTaskProcess === "function") {
+        context.subscriptions.push(
+            vscode.tasks.onDidStartTaskProcess(event => {
+                if (event.execution) {
+                    handleTaskExecution(event.execution);
                 }
             }),
         );

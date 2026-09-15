@@ -89,14 +89,14 @@ function scanAllOpenDocuments(diagnostics) {
 }
 
 /**
- * Checks whether any error-level localization diagnostics are currently present.
+ * Checks whether any localization diagnostics are currently present.
  * @param {import("vscode").DiagnosticCollection} diagnostics
  * @returns {boolean}
  */
 function hasLocalizationErrors(diagnostics) {
     let hasErrors = false;
     diagnostics.forEach((_uri, diagList) => {
-        if (diagList.some(d => d.severity === vscode.DiagnosticSeverity.Error)) {
+        if (diagList && diagList.length > 0) {
             hasErrors = true;
         }
     });
