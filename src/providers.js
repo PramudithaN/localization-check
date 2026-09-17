@@ -35,7 +35,7 @@ class LocalizationCodeActionProvider {
             action.command = {
                 command: "localizationCheck.localizeWithCopilot",
                 title: "Add localization with Copilot",
-                arguments: [document, diagnostic.range],
+                arguments: [document.uri, diagnostic.range],
             };
             actions.push(action);
         });
@@ -54,7 +54,7 @@ class LocalizationCodeActionProvider {
             batchAction.command = {
                 command: "localizationCheck.localizeAllInFile",
                 title: "Localize All in File with Copilot",
-                arguments: [document],
+                arguments: [document.uri],
             };
             actions.push(batchAction);
         }
@@ -102,7 +102,7 @@ class LocalizationCodeLensProvider {
                     title: "$(sparkle) Add localization with Copilot",
                     tooltip: "Use GitHub Copilot to extract and replace this hardcoded string with localized code",
                     command: "localizationCheck.localizeWithCopilot",
-                    arguments: [document, diagnostic.range],
+                    arguments: [document.uri, diagnostic.range],
                 });
                 codeLenses.push(codeLens);
             }

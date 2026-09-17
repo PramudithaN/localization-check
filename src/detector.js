@@ -126,12 +126,16 @@ function findHardcodedRangesInLine(lineText) {
     ATTRIBUTE_PATTERN.lastIndex = 0;
     while ((match = ATTRIBUTE_PATTERN.exec(lineText))) {
         if (commentIndex !== -1 && match.index >= commentIndex) break;
-        const value = match[2];
+        const value = match[3];
+        const quote = match[2];
         if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
-            const start = match.index + match[0].lastIndexOf(value);
+            const quotedStr = quote + value + quote;
+            const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
+            const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
+            const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
             hits.push({
                 start,
-                end: start + value.length,
+                end,
                 message: `Hardcoded text in "${match[1]}" attribute: "${value}". Use t("...") instead.`,
             });
         }
@@ -154,12 +158,16 @@ function findHardcodedRangesInLine(lineText) {
     OBJECT_PROPERTY_PATTERN.lastIndex = 0;
     while ((match = OBJECT_PROPERTY_PATTERN.exec(lineText))) {
         if (commentIndex !== -1 && match.index >= commentIndex) break;
-        const value = match[2];
+        const value = match[3];
+        const quote = match[2];
         if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
-            const start = match.index + match[0].lastIndexOf(match[2]);
+            const quotedStr = quote + value + quote;
+            const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
+            const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
+            const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
             hits.push({
                 start,
-                end: start + value.length,
+                end,
                 message: `Hardcoded value for "${match[1]}": "${value}". Use t("...") instead.`,
             });
         }
@@ -243,8 +251,8 @@ function findNotificationHits(fullText) {
                     }
 
                     if (!ignoredValue(value)) {
-                        const start = argsStartOffset + arg.offset + quoteIndexInArg + 1;
-                        const end = start + value.length;
+                        const start = argsStartOffset + arg.offset + quoteIndexInArg;
+                        const end = start + strMatch[0].length;
                         hits.push({
                             startOffset: start,
                             endOffset: end,

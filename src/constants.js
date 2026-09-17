@@ -6,7 +6,7 @@ const RELEVANT_LANGUAGES = new Set([
 ]);
 
 const ATTRIBUTE_PATTERN =
-    /\b(label|title|placeholder|tooltip|aria-label|alt|description|helperText|buttonText)\s*=\s*["']([^"']+)["']/gi;
+    /\b(label|title|placeholder|tooltip|aria-label|alt|description|helperText|buttonText)\s*=\s*(["'])([^"']+)\2/gi;
 
 const TEXT_PATTERN = />\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*</g;
 
@@ -14,7 +14,7 @@ const TEXT_PATTERN = />\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*</g;
 // (as opposed to a JSX attribute, which uses `=` and is covered above).
 // Note: "name" is intentionally excluded as it commonly represents technical form/field/entity identifiers.
 const OBJECT_PROPERTY_PATTERN =
-    /\b(label|title|placeholder|tooltip|description|header|text|buttonText|helperText|message|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText)\s*:\s*["']([^"']+)["']/gi;
+    /\b(label|title|placeholder|tooltip|description|header|text|buttonText|helperText|message|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText)\s*:\s*(["'`])([^"'`]+)\2/gi;
 
 // Notification and toast functions where 1st argument is type/status and subsequent arguments are user-facing messages.
 const NOTIFICATION_FUNCTION_PATTERN =

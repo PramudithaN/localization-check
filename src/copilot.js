@@ -2,7 +2,8 @@ const vscode = require("vscode");
 const { CONFIG_SECTION } = require("./constants");
 
 /**
- * Strips code fences, markdown wrapping, and leading/trailing quotes if wrapped unnecessarily.
+ * Strips code fences, markdown wrapping, property/attribute prefixes,
+ * unnecessary outer quotes, and trailing punctuation (commas, semicolons).
  * @param {string} text
  * @returns {string}
  */
@@ -20,7 +21,78 @@ function cleanModelResponse(text) {
         cleaned = cleaned.slice(1, -1).trim();
     }
 
+    // If the model prefixed the response with property name or attribute name, e.g. `title: t(...)` or `placeholder={t(...)}`
+    const keyPrefixMatch = cleaned.match(/^[a-zA-Z0-9_-]+\s*[:=]\s*([\s\S]+)$/);
+    if (keyPrefixMatch) {
+        cleaned = keyPrefixMatch[1].trim();
+    }
+
+    // Strip trailing semicolons or commas (e.g. `t("key"),` -> `t("key")`)
+    cleaned = cleaned.replace(/[;,]+$/, "").trim();
+
+    // If model wrapped a localization call in outer quotes, e.g. "t('key')" or 't('key')'
+    if (
+        (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+        (cleaned.startsWith("'") && cleaned.endsWith("'"))
+    ) {
+        const inner = cleaned.slice(1, -1).trim();
+        if (
+            /^(?:i18n\.)?t\s*\(/.test(inner) ||
+            /^(?:intl\.)?formatMessage\s*\(/.test(inner) ||
+            /^useTranslation\b/.test(inner) ||
+            inner.startsWith("{")
+        ) {
+            cleaned = inner;
+        }
+    }
+
     return cleaned;
+}
+
+/**
+ * Formats the cleaned model replacement according to the surrounding syntax context.
+ * @param {string} rawReplacement
+ * @param {import("vscode").TextDocument} document
+ * @param {import("vscode").Range} range
+ * @returns {string}
+ */
+function formatReplacement(rawReplacement, document, range) {
+    let result = cleanModelResponse(rawReplacement);
+    if (!result) return "";
+
+    const line = document.lineAt(range.start.line).text;
+    const beforeText = line.slice(0, range.start.character).trimEnd();
+    const afterText = line.slice(range.end.character).trimStart();
+    const isJsxFile = document.languageId.includes("react") || document.languageId.endsWith("jsx") || document.languageId.endsWith("tsx");
+
+    // Check if replacing inside a JSX attribute: e.g. `placeholder="`
+    const isJsxAttribute = /=\s*$/.test(beforeText);
+
+    // Check if replacing inside JSX child text: e.g. `>text<` or standalone JSX line
+    const isJsxText = />\s*$/.test(beforeText) || (/^\s*<\//.test(afterText) && isJsxFile);
+
+    // Check if replacing an object property or JS function argument: e.g. `title:` or `fn(`
+    const isJsExpression = /:\s*$/.test(beforeText) || /[,\(]\s*$/.test(beforeText);
+
+    if (isJsxAttribute || isJsxText) {
+        // In JSX attributes and JSX children, localization calls must be wrapped in JSX expression braces `{...}`
+        if (!result.startsWith("{") && !result.endsWith("}")) {
+            if (/^(?:i18n\.)?t\s*\(/.test(result) || /^(?:intl\.)?formatMessage\s*\(/.test(result)) {
+                result = `{${result}}`;
+            }
+        }
+    } else if (isJsExpression) {
+        // In JS object properties (`title: ...`) or function arguments (`fn(...)`), it must NOT be wrapped in `{}` unless it's a valid object argument
+        if (result.startsWith("{") && result.endsWith("}")) {
+            const inner = result.slice(1, -1).trim();
+            // If it's `{t('...')}`, strip the outer braces
+            if (/^(?:i18n\.)?t\s*\(/.test(inner)) {
+                result = inner;
+            }
+        }
+    }
+
+    return result;
 }
 
 /**
@@ -91,10 +163,12 @@ async function localizeWithCopilot(document, range) {
             "",
             "Rules:",
             "1. Output ONLY the exact replacement expression/JSX that should directly substitute the target text in the code.",
-            "2. Do NOT output explanations, markdown headers, or code comments.",
-            "3. Do NOT include enclosing markdown code blocks (```) unless the code syntax itself requires it.",
-            "4. Match existing i18n conventions in the file if present (such as t('key'), formatMessage({ id: '...' }), useTranslation, etc.).",
-            "5. Generate a clear, kebab-case, camelCase, or dot-notation key as suitable for the string.",
+            "2. Do NOT include surrounding property names or keys (e.g. if replacing the value in 'title: \"...\"', output ONLY the localization expression, NOT 'title: ...').",
+            "3. Do NOT include trailing commas (,) or semicolons (;).",
+            "4. Do NOT output explanations, markdown headers, or code comments.",
+            "5. Do NOT include enclosing markdown code blocks (```).",
+            "6. Match existing i18n conventions in the file if present (such as t('key'), formatMessage({ id: '...' }), useTranslation, etc.).",
+            "7. Generate a clear, kebab-case, camelCase, or dot-notation key as suitable for the string.",
         ].filter(Boolean).join("\n");
 
         return await vscode.window.withProgress(
@@ -115,7 +189,7 @@ async function localizeWithCopilot(document, range) {
                     accumulated += chunk;
                 }
 
-                const replacement = cleanModelResponse(accumulated);
+                const replacement = formatReplacement(accumulated, document, range);
                 if (!replacement) {
                     vscode.window.showWarningMessage("Copilot did not return a valid replacement.");
                     return false;
@@ -212,9 +286,10 @@ async function localizeAllInDocument(document, diagnostics) {
             "Rules:",
             "1. Output ONLY a valid JSON array of objects mapping each item id to its replacement code expression/JSX.",
             '2. Format: [{"id": 1, "replacement": "t(\'save\')"}, {"id": 2, "replacement": "formatMessage({ id: \'submit\' })"}]',
-            "3. Do NOT wrap output in markdown fences, do NOT include explanations.",
-            "4. Match the exact i18n patterns/libraries already used or imported in the file where possible.",
-            "5. Ensure valid JSON syntax only.",
+            "3. Do NOT include surrounding property names/keys, do NOT include trailing commas (,) or semicolons (;).",
+            "4. Do NOT wrap output in markdown fences, do NOT include explanations.",
+            "5. Match the exact i18n patterns/libraries already used or imported in the file where possible.",
+            "6. Ensure valid JSON syntax only.",
         ].filter(Boolean).join("\n");
 
         return await vscode.window.withProgress(
@@ -276,10 +351,13 @@ async function localizeAllInDocument(document, diagnostics) {
                 let appliedCount = 0;
 
                 for (const item of sortedItems) {
-                    const replacement = replacementMap.get(item.id);
-                    if (replacement) {
-                        edit.replace(document.uri, item.range, replacement);
-                        appliedCount++;
+                    const rawReplacement = replacementMap.get(item.id);
+                    if (rawReplacement) {
+                        const replacement = formatReplacement(rawReplacement, document, item.range);
+                        if (replacement) {
+                            edit.replace(document.uri, item.range, replacement);
+                            appliedCount++;
+                        }
                     }
                 }
 
@@ -314,6 +392,7 @@ async function localizeAllInDocument(document, diagnostics) {
 
 module.exports = {
     cleanModelResponse,
+    formatReplacement,
     getSurroundingContext,
     localizeWithCopilot,
     localizeAllInDocument,
