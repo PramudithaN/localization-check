@@ -20,29 +20,90 @@ async function findPrimaryDictionary() {
         }
     }
 
-    // Auto-discover en.json or en-US.json
-    const matches = await vscode.workspace.findFiles(
-        "**/{en,en-US,locales/**/en,lang*/**/en}.json",
-        "**/{node_modules,dist,build,coverage,.git,.next,.turbo}/**",
-        5,
-    );
+    const searchPatterns = [
+        "**/en.json",
+        "**/en-US.json",
+        "**/en_US.json",
+        "**/locales/**/en.json",
+        "**/locales/**/translation.json",
+        "**/locales/**/common.json",
+        "**/translations/**/en.json",
+        "**/lang*/**/en.json",
+        "**/i18n/**/en.json",
+    ];
 
-    if (matches && matches.length > 0) {
-        // Prioritize paths containing 'locales' or 'lang' if multiple found
-        const preferred = matches.find(m =>
-            m.fsPath.includes("locales") || m.fsPath.includes("lang") || m.fsPath.includes("localization"),
-        );
-        return preferred || matches[0];
+    const excludePattern = "**/{node_modules,dist,build,coverage,.git,.next,.turbo,.vscode,out,bin}/**";
+
+    for (const pattern of searchPatterns) {
+        try {
+            const matches = await vscode.workspace.findFiles(pattern, excludePattern, 5);
+            if (matches && matches.length > 0) {
+                // Prioritize paths containing 'locales', 'lang', 'i18n', or 'localization'
+                const preferred = matches.find(m => {
+                    const p = m.fsPath.toLowerCase();
+                    return (
+                        p.includes("locales") ||
+                        p.includes("lang") ||
+                        p.includes("i18n") ||
+                        p.includes("localization") ||
+                        p.includes("translation")
+                    );
+                });
+                return preferred || matches[0];
+            }
+        } catch {
+            // continue to next pattern
+        }
     }
 
-    // Generic en.json fallback
-    const genericMatches = await vscode.workspace.findFiles(
-        "**/en.json",
-        "**/{node_modules,dist,build,coverage,.git}/**",
-        1,
-    );
+    return null;
+}
 
-    return genericMatches && genericMatches.length > 0 ? genericMatches[0] : null;
+/**
+ * Finds the primary dictionary or automatically creates one if none exists in the workspace.
+ * @returns {Promise<vscode.Uri | null>}
+ */
+async function ensurePrimaryDictionary() {
+    const existing = await findPrimaryDictionary();
+    if (existing) {
+        return existing;
+    }
+
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+        return null;
+    }
+
+    const root = workspaceFolders[0].uri.fsPath;
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const configuredPath = config.get("dictionaryPath", "").trim();
+
+    let targetPath;
+    if (configuredPath) {
+        targetPath = path.isAbsolute(configuredPath)
+            ? configuredPath
+            : path.join(root, configuredPath);
+    } else {
+        // Detect if src directory exists to choose between src/locales/en.json and locales/en.json
+        try {
+            const srcUri = vscode.Uri.file(path.join(root, "src"));
+            await vscode.workspace.fs.stat(srcUri);
+            targetPath = path.join(root, "src", "locales", "en.json");
+        } catch {
+            targetPath = path.join(root, "locales", "en.json");
+        }
+    }
+
+    const newUri = vscode.Uri.file(targetPath);
+    try {
+        const dirUri = vscode.Uri.file(path.dirname(newUri.fsPath));
+        await vscode.workspace.fs.createDirectory(dirUri);
+        await vscode.workspace.fs.writeFile(newUri, Buffer.from("{\n}\n", "utf-8"));
+        return newUri;
+    } catch (err) {
+        console.error("Failed to create primary dictionary file:", err);
+        return null;
+    }
 }
 
 /**
@@ -145,7 +206,7 @@ async function addEntriesToDictionaries(entries) {
         return { primaryUpdated: false, dictionaryUri: null, count: 0 };
     }
 
-    const primaryUri = await findPrimaryDictionary();
+    const primaryUri = await ensurePrimaryDictionary();
     if (!primaryUri) {
         return { primaryUpdated: false, dictionaryUri: null, count: 0 };
     }
@@ -154,26 +215,39 @@ async function addEntriesToDictionaries(entries) {
 
     try {
         // Read & update primary dictionary
-        let primaryData;
         let primaryJson = {};
-        let originalText = "";
 
         try {
-            primaryData = await vscode.workspace.fs.readFile(primaryUri);
-            originalText = Buffer.from(primaryData).toString("utf-8");
-            primaryJson = JSON.parse(originalText);
+            const primaryData = await vscode.workspace.fs.readFile(primaryUri);
+            const originalText = Buffer.from(primaryData).toString("utf-8").trim();
+            if (originalText) {
+                primaryJson = JSON.parse(originalText);
+            }
         } catch {
             primaryJson = {};
         }
 
+        // Check if existing dictionary is strictly flat dotted (e.g. "auth.login": "Log In")
+        const topKeys = Object.keys(primaryJson);
+        const isFlat =
+            topKeys.length > 0 &&
+            !topKeys.some(k => typeof primaryJson[k] === "object" && primaryJson[k] !== null && !Array.isArray(primaryJson[k])) &&
+            topKeys.some(k => k.includes("."));
+
         for (const entry of entries) {
             if (entry.key && entry.value !== undefined) {
-                setDeepProperty(primaryJson, entry.key, entry.value);
+                if (isFlat) {
+                    primaryJson[entry.key] = entry.value;
+                } else {
+                    setDeepProperty(primaryJson, entry.key, entry.value);
+                }
                 updatedCount++;
             }
         }
 
         const formatted = JSON.stringify(primaryJson, null, 2) + "\n";
+        const dirUri = vscode.Uri.file(path.dirname(primaryUri.fsPath));
+        await vscode.workspace.fs.createDirectory(dirUri);
         await vscode.workspace.fs.writeFile(primaryUri, Buffer.from(formatted, "utf-8"));
 
         // Also update sibling dictionaries (e.g. sin.json, es.json) so keys are present
@@ -200,8 +274,11 @@ async function addEntriesToDictionaries(entries) {
                         }
 
                         if (!exists) {
-                            // Add key with empty string or English fallback so key is available
-                            setDeepProperty(sJson, entry.key, entry.value);
+                            if (isFlat) {
+                                sJson[entry.key] = entry.value;
+                            } else {
+                                setDeepProperty(sJson, entry.key, entry.value);
+                            }
                             siblingChanged = true;
                         }
                     }
@@ -227,6 +304,7 @@ async function addEntriesToDictionaries(entries) {
 
 module.exports = {
     findPrimaryDictionary,
+    ensurePrimaryDictionary,
     findSiblingDictionaries,
     getDictionaryContext,
     setDeepProperty,

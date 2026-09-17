@@ -2,6 +2,7 @@ const vscode = require("vscode");
 const { CONFIG_SECTION } = require("./constants");
 const {
     findPrimaryDictionary,
+    ensurePrimaryDictionary,
     getDictionaryContext,
     addEntriesToDictionaries,
 } = require("./dictionary");
@@ -13,6 +14,7 @@ const {
  * @returns {string}
  */
 function cleanModelResponse(text) {
+    if (!text || typeof text !== "string") return "";
     let cleaned = text.trim();
 
     // Remove markdown code fence ```lang ... ``` or ``` ... ```
@@ -52,6 +54,51 @@ function cleanModelResponse(text) {
     }
 
     return cleaned;
+}
+
+/**
+ * Robustly parses JSON response from Language Model, tolerating markdown fences, comments, and trailing commas.
+ * @param {string} text
+ * @returns {any | null}
+ */
+function parseModelJsonResponse(text) {
+    if (!text || typeof text !== "string") return null;
+
+    let cleaned = text.trim();
+
+    // Strip markdown fences
+    const fenceMatch = cleaned.match(/```(?:json|javascript|js|ts|tsx)?\s*([\s\S]*?)\s*```/i);
+    if (fenceMatch) {
+        cleaned = fenceMatch[1].trim();
+    }
+
+    // Extract object or array candidates
+    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+    const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
+
+    const candidates = [];
+    if (objMatch) candidates.push(objMatch[0]);
+    if (arrayMatch) candidates.push(arrayMatch[0]);
+    candidates.push(cleaned);
+
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch {
+            try {
+                // Sanitize line comments, block comments, and trailing commas
+                const sanitized = candidate
+                    .replace(/\/\/[^\n]*/g, "")
+                    .replace(/\/\*[\s\S]*?\*\//g, "")
+                    .replace(/,(\s*[}\]])/g, "$1");
+                return JSON.parse(sanitized);
+            } catch {
+                // Continue to next candidate
+            }
+        }
+    }
+
+    return null;
 }
 
 /**
@@ -116,6 +163,9 @@ function extractKeyFromExpression(expression) {
     const intlMatch = expression.match(/id\s*:\s*["'`]([^"'`]+)["'`]/);
     if (intlMatch) return intlMatch[1];
 
+    const simpleMatch = expression.match(/["'`]([a-zA-Z0-9_.-]+)["'`]/);
+    if (simpleMatch) return simpleMatch[1];
+
     return "";
 }
 
@@ -140,84 +190,448 @@ function getSurroundingContext(document, range) {
 }
 
 /**
- * Inserts missing imports and hook definitions into the document via WorkspaceEdit.
+ * Detects the i18n setup and framework used in the workspace and file.
  * @param {import("vscode").TextDocument} document
- * @param {import("vscode").WorkspaceEdit} edit
- * @param {string} [neededImport] e.g. "import { useTranslation } from 'react-i18next';"
- * @param {string} [neededHook] e.g. "const { t } = useTranslation();"
- * @param {number} [targetLine]
+ * @returns {Promise<{ framework: string, importStatement: string, hookStatement: string, isReact: boolean }>}
  */
-function injectMissingImportAndHook(document, edit, neededImport, neededHook, targetLine = 0) {
-    const fileContent = document.getText();
+async function detectI18nSetup(document) {
+    const text = document.getText();
+    const isReact =
+        document.languageId.includes("react") ||
+        document.languageId.endsWith("jsx") ||
+        document.languageId.endsWith("tsx") ||
+        /\bimport\s+React\b/.test(text) ||
+        /<\s*[A-Za-z][A-Za-z0-9_.]*(?:\s+[^>]*?)?>/.test(text);
 
-    // 1. Inject missing import if needed
-    if (neededImport && neededImport.trim()) {
-        const importIdentifierMatch = neededImport.match(/import\s+(?:\{([^}]+)\}|([a-zA-Z0-9_$]+))\s+from/);
-        const importedIdentifier = importIdentifierMatch
-            ? (importIdentifierMatch[1] || importIdentifierMatch[2]).trim().split(",")[0].trim()
-            : "useTranslation";
+    // 1. Check if the file itself already has i18n imports
+    if (/\bfrom\s+['"]next-intl['"]/.test(text)) {
+        return {
+            framework: "next-intl",
+            importStatement: "import { useTranslations } from 'next-intl';",
+            hookStatement: "const t = useTranslations();",
+            isReact,
+        };
+    }
+    if (/\bfrom\s+['"]next-i18next['"]/.test(text)) {
+        return {
+            framework: "next-i18next",
+            importStatement: "import { useTranslation } from 'next-i18next';",
+            hookStatement: "const { t } = useTranslation();",
+            isReact,
+        };
+    }
+    if (/\bfrom\s+['"]react-intl['"]/.test(text)) {
+        return {
+            framework: "react-intl",
+            importStatement: "import { useIntl } from 'react-intl';",
+            hookStatement: "const { formatMessage: t } = useIntl();",
+            isReact,
+        };
+    }
+    if (/\bfrom\s+['"]react-i18next['"]/.test(text)) {
+        return {
+            framework: "react-i18next",
+            importStatement: "import { useTranslation } from 'react-i18next';",
+            hookStatement: "const { t } = useTranslation();",
+            isReact,
+        };
+    }
+    if (/\bfrom\s+['"]@lingui\/react['"]/.test(text)) {
+        return {
+            framework: "lingui",
+            importStatement: "import { useLingui } from '@lingui/react';",
+            hookStatement: "const { t } = useLingui();",
+            isReact,
+        };
+    }
+    if (/\bfrom\s+['"]i18next['"]/.test(text)) {
+        return {
+            framework: "i18next",
+            importStatement: isReact ? "import { useTranslation } from 'react-i18next';" : "import i18n from 'i18next';",
+            hookStatement: isReact ? "const { t } = useTranslation();" : "",
+            isReact,
+        };
+    }
 
-        const hasImport = new RegExp(`\\bimport\\b[\\s\\S]*?\\b${importedIdentifier}\\b[\\s\\S]*?\\bfrom\\b`).test(
-            fileContent,
+    // 2. Check workspace package.json to see which package is installed
+    try {
+        const pkgFiles = await vscode.workspace.findFiles(
+            "**/package.json",
+            "**/{node_modules,dist,build,coverage,.git,.next,.turbo}/**",
+            1,
         );
+        if (pkgFiles && pkgFiles.length > 0) {
+            const pkgData = await vscode.workspace.fs.readFile(pkgFiles[0]);
+            const pkg = JSON.parse(Buffer.from(pkgData).toString("utf-8"));
+            const allDeps = {
+                ...(pkg.dependencies || {}),
+                ...(pkg.devDependencies || {}),
+            };
 
-        if (!hasImport) {
-            // Find insertion point: after the last existing import statement
-            let lastImportLine = -1;
-            for (let i = 0; i < document.lineCount; i++) {
-                const lineText = document.lineAt(i).text.trim();
-                if (lineText.startsWith("import ") || lineText.startsWith("import{") || /^import\s*\(/.test(lineText)) {
-                    lastImportLine = i;
-                }
+            if (allDeps["next-intl"]) {
+                return {
+                    framework: "next-intl",
+                    importStatement: "import { useTranslations } from 'next-intl';",
+                    hookStatement: "const t = useTranslations();",
+                    isReact,
+                };
             }
+            if (allDeps["next-i18next"]) {
+                return {
+                    framework: "next-i18next",
+                    importStatement: "import { useTranslation } from 'next-i18next';",
+                    hookStatement: "const { t } = useTranslation();",
+                    isReact,
+                };
+            }
+            if (allDeps["react-intl"]) {
+                return {
+                    framework: "react-intl",
+                    importStatement: "import { useIntl } from 'react-intl';",
+                    hookStatement: "const { formatMessage: t } = useIntl();",
+                    isReact,
+                };
+            }
+            if (allDeps["react-i18next"]) {
+                return {
+                    framework: "react-i18next",
+                    importStatement: "import { useTranslation } from 'react-i18next';",
+                    hookStatement: "const { t } = useTranslation();",
+                    isReact,
+                };
+            }
+            if (allDeps["@lingui/react"]) {
+                return {
+                    framework: "lingui",
+                    importStatement: "import { useLingui } from '@lingui/react';",
+                    hookStatement: "const { t } = useLingui();",
+                    isReact,
+                };
+            }
+            if (allDeps["i18next"]) {
+                return {
+                    framework: "i18next",
+                    importStatement: isReact ? "import { useTranslation } from 'react-i18next';" : "import i18n from 'i18next';",
+                    hookStatement: isReact ? "const { t } = useTranslation();" : "",
+                    isReact,
+                };
+            }
+        }
+    } catch {
+        // ignore package read failure
+    }
 
-            const insertPos = lastImportLine >= 0
-                ? new vscode.Position(lastImportLine + 1, 0)
-                : new vscode.Position(0, 0);
+    // 3. Sensible defaults
+    if (isReact) {
+        return {
+            framework: "react-i18next",
+            importStatement: "import { useTranslation } from 'react-i18next';",
+            hookStatement: "const { t } = useTranslation();",
+            isReact: true,
+        };
+    }
 
-            const importText = neededImport.trim() + "\n";
-            edit.insert(document.uri, insertPos, importText);
+    return {
+        framework: "i18next",
+        importStatement: "import i18n from 'i18next';",
+        hookStatement: "",
+        isReact: false,
+    };
+}
+
+/**
+ * Checks if the document already has an import statement providing the required symbol.
+ * @param {string} fileContent
+ * @param {string} importStatement
+ * @returns {boolean} True if missing, False if already imported
+ */
+function isFileMissingImport(fileContent, importStatement) {
+    if (!importStatement || !importStatement.trim()) return false;
+
+    // Extract imported symbols, e.g. useTranslation, useTranslations, useIntl, i18n, t
+    const namedMatch = importStatement.match(/import\s*\{\s*([^}]+)\s*\}\s*from/);
+    const defaultMatch = importStatement.match(/import\s+([a-zA-Z0-9_$]+)\s+from/);
+
+    const symbolsToCheck = [];
+    if (namedMatch) {
+        namedMatch[1].split(",").forEach(s => {
+            const clean = s.trim().split(/\s+as\s+/)[0].trim();
+            if (clean) symbolsToCheck.push(clean);
+        });
+    } else if (defaultMatch) {
+        symbolsToCheck.push(defaultMatch[1].trim());
+    }
+
+    if (symbolsToCheck.length === 0) {
+        symbolsToCheck.push("useTranslation");
+    }
+
+    // Check if any import in the file imports any of these symbols
+    const importRegex = /(?:^|\n)\s*import\s+([\s\S]*?)\s+from\s+['"][^'"]+['"]/g;
+    let match;
+    while ((match = importRegex.exec(fileContent)) !== null) {
+        const importClause = match[1];
+        for (const sym of symbolsToCheck) {
+            const symPattern = new RegExp(`\\b${sym}\\b`);
+            if (symPattern.test(importClause)) {
+                return false; // already imported
+            }
         }
     }
 
-    // 2. Inject missing hook definition if needed
-    if (neededHook && neededHook.trim()) {
-        const hasHook =
-            /\bconst\s*\{\s*t\s*[\},]/.test(fileContent) ||
-            /\bconst\s*\[\s*t\s*[\],]/.test(fileContent) ||
-            /\bconst\s+t\s*=/.test(fileContent);
+    return true; // missing
+}
 
-        if (!hasHook) {
-            // Find enclosing component or function start before targetLine
-            let componentLine = -1;
-            for (let i = Math.min(targetLine, document.lineCount - 1); i >= 0; i--) {
-                const lineText = document.lineAt(i).text;
-                if (
-                    /^(?:export\s+)?(?:default\s+)?(?:function|const|let|var)\s+[A-Za-z0-9_$]+/.test(lineText) &&
-                    (lineText.includes("=>") || lineText.includes("function") || lineText.includes("{"))
-                ) {
-                    componentLine = i;
+/**
+ * Injects missing import statement into the document via WorkspaceEdit.
+ * @param {import("vscode").TextDocument} document
+ * @param {import("vscode").WorkspaceEdit} edit
+ * @param {string} importStatement
+ */
+function injectImportStatement(document, edit, importStatement) {
+    if (!importStatement || !importStatement.trim()) return;
+
+    const fileContent = document.getText();
+    if (!isFileMissingImport(fileContent, importStatement)) {
+        return;
+    }
+
+    // Find the right insertion line
+    let insertLine = 0;
+    let foundImport = false;
+
+    for (let i = 0; i < document.lineCount; i++) {
+        const lineText = document.lineAt(i).text.trim();
+
+        // If line has "use client" or "use strict", import must go after it
+        if (/^['"]use (?:client|strict)['"]/.test(lineText)) {
+            insertLine = i + 1;
+            continue;
+        }
+
+        if (
+            lineText.startsWith("import ") ||
+            lineText.startsWith("import{") ||
+            /^import\s*\(/.test(lineText)
+        ) {
+            insertLine = i + 1;
+            foundImport = true;
+        } else if (foundImport && lineText.length === 0) {
+            continue;
+        }
+    }
+
+    const insertPos = new vscode.Position(insertLine, 0);
+    const textToInsert = importStatement.trim() + "\n";
+    edit.insert(document.uri, insertPos, textToInsert);
+}
+
+/**
+ * Scans top-level components/functions in the document to find the one enclosing targetLine.
+ * @param {import("vscode").TextDocument} document
+ * @param {number} targetLine
+ * @returns {{ headerLine: number, bodyOpenLine: number, indent: string, hasT: boolean } | null}
+ */
+function findEnclosingComponent(document, targetLine) {
+    const componentStarts = [];
+
+    // Find candidate component / function header lines
+    for (let i = 0; i < document.lineCount; i++) {
+        const line = document.lineAt(i).text;
+        const trimmed = line.trim();
+
+        if (
+            trimmed.startsWith("//") ||
+            trimmed.startsWith("/*") ||
+            trimmed.startsWith("*") ||
+            trimmed.startsWith("import ")
+        ) {
+            continue;
+        }
+
+        const isCompDecl =
+            /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function(?:\s+[A-Za-z0-9_$]+)?\s*(?:<[^>]*>)?\s*\(/.test(trimmed) ||
+            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+[A-Za-z0-9_$]+\s*(?::\s*[^=]+)?\s*=\s*/.test(trimmed) ||
+            /^(?:export\s+default\s+)(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/.test(trimmed);
+
+        if (isCompDecl) {
+            componentStarts.push(i);
+        }
+    }
+
+    if (componentStarts.length === 0) {
+        return null;
+    }
+
+    let bestStartLine = -1;
+    for (let i = componentStarts.length - 1; i >= 0; i--) {
+        if (componentStarts[i] <= targetLine) {
+            bestStartLine = componentStarts[i];
+            break;
+        }
+    }
+
+    if (bestStartLine === -1) {
+        return null;
+    }
+
+    // Find the component's body opening `{` starting from bestStartLine
+    let bodyOpenLine = -1;
+    let foundArrow = false;
+    let isFunctionDecl = false;
+
+    for (let i = bestStartLine; i < document.lineCount; i++) {
+        const lineText = document.lineAt(i).text;
+
+        if (lineText.includes("function") && !foundArrow) {
+            isFunctionDecl = true;
+        }
+
+        if (lineText.includes("=>")) {
+            foundArrow = true;
+            const arrowIndex = lineText.indexOf("=>");
+            const afterArrow = lineText.slice(arrowIndex + 2);
+            if (afterArrow.includes("{")) {
+                bodyOpenLine = i;
+                break;
+            }
+        } else if (foundArrow && lineText.includes("{")) {
+            bodyOpenLine = i;
+            break;
+        } else if (isFunctionDecl && lineText.includes("{")) {
+            if (lineText.includes(")") && lineText.indexOf("{") > lineText.lastIndexOf(")")) {
+                bodyOpenLine = i;
+                break;
+            } else if (!lineText.includes("(")) {
+                bodyOpenLine = i;
+                break;
+            }
+        } else if (lineText.includes("{") && !lineText.includes("=>") && !lineText.includes("(")) {
+            bodyOpenLine = i;
+            break;
+        }
+
+        if (i > targetLine + 50) {
+            break;
+        }
+    }
+
+    if (bodyOpenLine === -1) {
+        for (let i = bestStartLine; i < document.lineCount; i++) {
+            if (document.lineAt(i).text.includes("{")) {
+                bodyOpenLine = i;
+                break;
+            }
+        }
+    }
+
+    if (bodyOpenLine === -1) {
+        return null;
+    }
+
+    // Determine component boundaries to check if targetLine is actually inside
+    let depth = 0;
+    let bodyCloseLine = document.lineCount - 1;
+    let foundStart = false;
+
+    for (let i = bodyOpenLine; i < document.lineCount; i++) {
+        const lineText = document.lineAt(i).text;
+        for (const char of lineText) {
+            if (char === "{") {
+                depth++;
+                foundStart = true;
+            } else if (char === "}") {
+                depth--;
+                if (foundStart && depth === 0) {
+                    bodyCloseLine = i;
                     break;
                 }
             }
+        }
+        if (foundStart && depth === 0) break;
+    }
 
-            if (componentLine >= 0) {
-                // Find opening brace '{'
-                let braceLine = componentLine;
-                while (braceLine < document.lineCount && !document.lineAt(braceLine).text.includes("{")) {
-                    braceLine++;
-                }
+    if (targetLine > bodyCloseLine && bodyCloseLine > bodyOpenLine) {
+        return null;
+    }
 
-                if (braceLine < document.lineCount) {
-                    const lineText = document.lineAt(braceLine).text;
-                    const indentMatch = lineText.match(/^\s*/);
-                    const baseIndent = indentMatch ? indentMatch[0] : "";
-                    const innerIndent = baseIndent + "    ";
+    // Check if component already declares `t`
+    const componentText = document.getText(
+        new vscode.Range(
+            new vscode.Position(bestStartLine, 0),
+            new vscode.Position(bodyCloseLine, document.lineAt(bodyCloseLine).text.length),
+        ),
+    );
 
-                    const insertPos = new vscode.Position(braceLine + 1, 0);
-                    const hookText = `${innerIndent}${neededHook.trim()}\n`;
-                    edit.insert(document.uri, insertPos, hookText);
-                }
+    const hasT =
+        /\bconst\s*\{\s*(?:[^}]*,\s*)?t(?:\s*,\s*[^}]*|\s*)\}\s*=/.test(componentText) ||
+        /\bconst\s*\[\s*t\s*[\],]/.test(componentText) ||
+        /\bconst\s+t\s*=/.test(componentText) ||
+        /\blet\s+t\s*=/.test(componentText) ||
+        /\bfunction\s+t\s*\(/.test(componentText) ||
+        /\buseTranslation\s*\(\s*\)/.test(componentText) ||
+        /\buseTranslations\s*\(\s*\)/.test(componentText) ||
+        /\buseIntl\s*\(\s*\)/.test(componentText);
+
+    const headerLineText = document.lineAt(bestStartLine).text;
+    const headerIndentMatch = headerLineText.match(/^\s*/);
+    const baseIndent = headerIndentMatch ? headerIndentMatch[0] : "";
+    const indent = baseIndent + "    ";
+
+    return {
+        headerLine: bestStartLine,
+        bodyOpenLine,
+        indent,
+        hasT,
+    };
+}
+
+/**
+ * Injects missing hook definition into the component body.
+ * @param {import("vscode").TextDocument} document
+ * @param {import("vscode").WorkspaceEdit} edit
+ * @param {{ headerLine: number, bodyOpenLine: number, indent: string, hasT: boolean }} componentInfo
+ * @param {string} hookStatement
+ */
+function injectHookIntoComponent(document, edit, componentInfo, hookStatement) {
+    if (!componentInfo || componentInfo.hasT || !hookStatement || !hookStatement.trim()) {
+        return;
+    }
+
+    const insertPos = new vscode.Position(componentInfo.bodyOpenLine + 1, 0);
+    const hookText = `${componentInfo.indent}${hookStatement.trim()}\n`;
+    edit.insert(document.uri, insertPos, hookText);
+    componentInfo.hasT = true;
+}
+
+/**
+ * Ensures required imports and hook declarations are present in the document.
+ * @param {import("vscode").TextDocument} document
+ * @param {import("vscode").WorkspaceEdit} edit
+ * @param {number[]} targetLines
+ * @param {string} [neededImport]
+ * @param {string} [neededHook]
+ */
+async function ensureTranslationsInDocument(document, edit, targetLines, neededImport, neededHook) {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    const autoImport = config.get("autoImportTranslation", true);
+    if (!autoImport) return;
+
+    const setup = await detectI18nSetup(document);
+    const finalImport = neededImport && neededImport.trim() ? neededImport.trim() : setup.importStatement;
+    const finalHook = neededHook && neededHook.trim() ? neededHook.trim() : setup.hookStatement;
+
+    // 1. Inject import statement if missing
+    injectImportStatement(document, edit, finalImport);
+
+    // 2. Inject hook in each unique enclosing component if missing
+    if (finalHook && finalHook.trim()) {
+        const seenComponents = new Set();
+        for (const line of targetLines) {
+            const comp = findEnclosingComponent(document, line);
+            if (comp && !comp.hasT && !seenComponents.has(comp.bodyOpenLine)) {
+                seenComponents.add(comp.bodyOpenLine);
+                injectHookIntoComponent(document, edit, comp, finalHook);
             }
         }
     }
@@ -257,7 +671,6 @@ async function localizeWithCopilot(document, range) {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
         const customPromptHint = config.get("copilotPromptHint", "");
         const autoUpdateDict = config.get("autoUpdateDictionary", true);
-        const autoImport = config.get("autoImportTranslation", true);
 
         // Fetch dictionary context
         const primaryDictUri = await findPrimaryDictionary();
@@ -269,8 +682,8 @@ async function localizeWithCopilot(document, range) {
             `1. The inline replacement expression (e.g. t('common.accountBlacklisted') or {t('common.accountBlacklisted')})`,
             `2. The dictionary key path (e.g. "common.accountBlacklisted")`,
             `3. The English text value to add to en.json`,
-            `4. Any missing i18n import statement (e.g. "import { useTranslation } from 'react-i18next';") if useTranslation/i18n is not already imported in the file`,
-            `5. Any missing hook declaration (e.g. "const { t } = useTranslation();") if t is not defined in the component`,
+            `4. Any missing i18n import statement (e.g. "import { useTranslation } from 'react-i18next';")`,
+            `5. Any missing hook declaration (e.g. "const { t } = useTranslation();")`,
             "",
             dictContext.namespaces.length > 0
                 ? `Available dictionary namespaces in en.json: ${dictContext.namespaces.join(", ")}`
@@ -300,10 +713,9 @@ async function localizeWithCopilot(document, range) {
             ),
             "",
             "Rules:",
-            "1. If t or useTranslation is already imported/defined in the file, set neededImport and neededHook to null.",
-            "2. Match existing i18n patterns in the codebase (such as t('key'), formatMessage, react-i18next).",
-            "3. Do NOT include surrounding property names or keys in 'replacement'.",
-            "4. Output valid JSON only with NO markdown fences or commentary.",
+            "1. Match existing i18n patterns in the codebase (such as t('key'), formatMessage, react-i18next).",
+            "2. Do NOT include surrounding property names or keys in 'replacement'.",
+            "3. Output valid JSON only with NO markdown fences or commentary.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -326,21 +738,10 @@ async function localizeWithCopilot(document, range) {
                     accumulated += chunk;
                 }
 
-                let cleanedResponse = cleanModelResponse(accumulated);
-                let parsedResult = null;
-
-                try {
-                    const jsonMatch = cleanedResponse.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        parsedResult = JSON.parse(jsonMatch[0]);
-                    }
-                } catch {
-                    // Fallback to plain string response
-                }
-
+                const parsedResult = parseModelJsonResponse(accumulated);
                 const rawReplacement = parsedResult && parsedResult.replacement
                     ? parsedResult.replacement
-                    : cleanedResponse;
+                    : accumulated;
 
                 const replacement = formatReplacement(rawReplacement, document, range);
                 if (!replacement) {
@@ -353,16 +754,14 @@ async function localizeWithCopilot(document, range) {
 
                 const edit = new vscode.WorkspaceEdit();
 
-                // 1. Inject missing import and hook if enabled
-                if (autoImport && parsedResult) {
-                    injectMissingImportAndHook(
-                        document,
-                        edit,
-                        parsedResult.neededImport,
-                        parsedResult.neededHook,
-                        range.start.line,
-                    );
-                }
+                // 1. Ensure missing import and hook are injected
+                await ensureTranslationsInDocument(
+                    document,
+                    edit,
+                    [range.start.line],
+                    parsedResult ? parsedResult.neededImport : null,
+                    parsedResult ? parsedResult.neededHook : null,
+                );
 
                 // 2. Replace hardcoded string inline
                 edit.replace(document.uri, range, replacement);
@@ -437,7 +836,6 @@ async function localizeAllInDocument(document, diagnostics) {
         const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
         const customPromptHint = config.get("copilotPromptHint", "");
         const autoUpdateDict = config.get("autoUpdateDictionary", true);
-        const autoImport = config.get("autoImportTranslation", true);
 
         // Fetch dictionary context
         const primaryDictUri = await findPrimaryDictionary();
@@ -493,9 +891,8 @@ async function localizeAllInDocument(document, diagnostics) {
             ),
             "",
             "Rules:",
-            "1. If t or useTranslation is already imported/defined in the file, set neededImport and neededHook to null.",
-            "2. Output ONLY the JSON object. Do NOT include markdown fences, surrounding property names in replacement, or commentary.",
-            "3. Ensure valid JSON syntax.",
+            "1. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
+            "2. Ensure valid JSON syntax.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -518,38 +915,14 @@ async function localizeAllInDocument(document, diagnostics) {
                     accumulated += chunk;
                 }
 
-                let jsonText = cleanModelResponse(accumulated);
-                const objMatch = jsonText.match(/\{[\s\S]*\}/);
-                const arrayMatch = jsonText.match(/\[[\s\S]*\]/);
-
-                let parsedBatch = null;
-                try {
-                    if (objMatch) {
-                        parsedBatch = JSON.parse(objMatch[0]);
-                    } else if (arrayMatch) {
-                        parsedBatch = { items: JSON.parse(arrayMatch[0]) };
-                    }
-                } catch {
-                    vscode.window.showErrorMessage(
-                        "Copilot returned an unexpected response format. Please try again or localize items individually.",
-                    );
-                    return false;
-                }
-
+                const parsedBatch = parseModelJsonResponse(accumulated);
                 const parsedItems = parsedBatch && Array.isArray(parsedBatch.items)
                     ? parsedBatch.items
                     : Array.isArray(parsedBatch)
                       ? parsedBatch
                       : [];
 
-                if (parsedItems.length === 0) {
-                    vscode.window.showWarningMessage("No valid replacements received from Copilot.");
-                    return false;
-                }
-
                 const replacementMap = new Map();
-                const dictionaryEntries = [];
-
                 parsedItems.forEach(entry => {
                     if (entry && entry.id !== undefined && entry.replacement) {
                         replacementMap.set(Number(entry.id), entry);
@@ -566,15 +939,18 @@ async function localizeAllInDocument(document, diagnostics) {
 
                 const edit = new vscode.WorkspaceEdit();
                 let appliedCount = 0;
+                const dictionaryEntries = [];
+                const targetLines = [];
 
                 for (const item of sortedItems) {
                     const entry = replacementMap.get(item.id);
-                    if (entry) {
-                        const rawReplacement = entry.replacement;
+                    const rawReplacement = entry ? entry.replacement : null;
+                    if (rawReplacement) {
                         const replacement = formatReplacement(rawReplacement, document, item.range);
                         if (replacement) {
                             edit.replace(document.uri, item.range, replacement);
                             appliedCount++;
+                            targetLines.push(item.range.start.line);
 
                             const key = entry.key || extractKeyFromExpression(replacement);
                             const value = entry.value || item.text;
@@ -590,16 +966,14 @@ async function localizeAllInDocument(document, diagnostics) {
                     return false;
                 }
 
-                // Inject missing import and hook if needed
-                if (autoImport && parsedBatch) {
-                    injectMissingImportAndHook(
-                        document,
-                        edit,
-                        parsedBatch.neededImport,
-                        parsedBatch.neededHook,
-                        sortedItems[0].range.start.line,
-                    );
-                }
+                // Ensure missing imports and hooks are injected for all affected components
+                await ensureTranslationsInDocument(
+                    document,
+                    edit,
+                    targetLines,
+                    parsedBatch ? parsedBatch.neededImport : null,
+                    parsedBatch ? parsedBatch.neededHook : null,
+                );
 
                 const applied = await vscode.workspace.applyEdit(edit);
                 if (!applied) {
@@ -635,10 +1009,16 @@ async function localizeAllInDocument(document, diagnostics) {
 
 module.exports = {
     cleanModelResponse,
+    parseModelJsonResponse,
     formatReplacement,
     extractKeyFromExpression,
     getSurroundingContext,
-    injectMissingImportAndHook,
+    detectI18nSetup,
+    isFileMissingImport,
+    injectImportStatement,
+    findEnclosingComponent,
+    injectHookIntoComponent,
+    ensureTranslationsInDocument,
     localizeWithCopilot,
     localizeAllInDocument,
 };
