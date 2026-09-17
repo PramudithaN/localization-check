@@ -16,6 +16,93 @@ const NOTIFICATION_STATUS_KEYWORDS = new Set([
     "open",
 ]);
 
+const IGNORED_PROGRAMMING_IDENTIFIERS = new Set([
+    "Promise",
+    "Observable",
+    "Subscription",
+    "Subject",
+    "BehaviorSubject",
+    "AxiosResponse",
+    "AxiosRequestConfig",
+    "AxiosError",
+    "Array",
+    "ReadonlyArray",
+    "Record",
+    "Set",
+    "Map",
+    "WeakMap",
+    "WeakSet",
+    "Object",
+    "Function",
+    "Boolean",
+    "Number",
+    "String",
+    "Symbol",
+    "BigInt",
+    "Date",
+    "RegExp",
+    "Error",
+    "ReactNode",
+    "ReactElement",
+    "ReactChild",
+    "ReactFragment",
+    "ReactPortal",
+    "JSX",
+    "FC",
+    "FunctionComponent",
+    "Component",
+    "PureComponent",
+    "ComponentType",
+    "PropsWithChildren",
+    "RefObject",
+    "MutableRefObject",
+    "Element",
+    "HTMLElement",
+    "HTMLDivElement",
+    "HTMLInputElement",
+    "HTMLButtonElement",
+    "HTMLSpanElement",
+    "HTMLAnchorElement",
+    "HTMLFormElement",
+    "SVGElement",
+    "Document",
+    "Window",
+    "Node",
+    "Event",
+    "SyntheticEvent",
+    "MouseEvent",
+    "ChangeEvent",
+    "FormEvent",
+    "KeyboardEvent",
+    "Partial",
+    "Required",
+    "Readonly",
+    "Pick",
+    "Omit",
+    "Exclude",
+    "Extract",
+    "NonNullable",
+    "Parameters",
+    "ConstructorParameters",
+    "ReturnType",
+    "InstanceType",
+    "Awaited",
+    "any",
+    "unknown",
+    "never",
+    "void",
+    "null",
+    "undefined",
+    "boolean",
+    "number",
+    "string",
+    "symbol",
+    "bigint",
+    "object",
+    "true",
+    "false",
+]);
+
 /**
  * Checks if a string value should be ignored (e.g. URLs, colors, IDs, punctuation, identifiers, etc.).
  * @param {string} value
@@ -25,6 +112,8 @@ function ignoredValue(value) {
     if (!value || typeof value !== "string") return true;
     const trimmed = value.trim();
     if (trimmed.length < 2) return true;
+
+    if (IGNORED_PROGRAMMING_IDENTIFIERS.has(trimmed)) return true;
 
     return (
         /^[A-Z0-9_./:-]+$/.test(trimmed) ||
@@ -120,6 +209,14 @@ function findHardcodedRangesInLine(lineText) {
         return hits;
     }
 
+    // Ignore pure TypeScript type/interface declarations and method/return type signatures
+    if (
+        /^\s*(?:export\s+)?(?:default\s+)?(?:type\s+[A-Za-z0-9_$]+(?:\s*<[^>]*>)?\s*=|interface\s+[A-Za-z0-9_$]+)/.test(lineText) ||
+        /=>\s*[A-Za-z0-9_$]+</.test(lineText)
+    ) {
+        return hits;
+    }
+
     const commentIndex = getCommentIndexInLine(lineText);
 
     let match;
@@ -145,7 +242,14 @@ function findHardcodedRangesInLine(lineText) {
     while ((match = TEXT_PATTERN.exec(lineText))) {
         if (commentIndex !== -1 && match.index >= commentIndex) break;
         const value = match[1].trim();
-        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+
+        // Verify that the preceding `>` is preceded by a JSX tag or is the start of the line
+        const beforeMatch = lineText.slice(0, match.index);
+        const hasPrecedingJsxTag =
+            beforeMatch.trim().length === 0 ||
+            /<(?:\/?[A-Za-z][\w.-]*(?:\s+[^>]*)?|>)\s*$/.test(beforeMatch);
+
+        if (hasPrecedingJsxTag && !ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].indexOf(match[1]);
             hits.push({
                 start,

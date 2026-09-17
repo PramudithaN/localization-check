@@ -8,7 +8,8 @@ const RELEVANT_LANGUAGES = new Set([
 const ATTRIBUTE_PATTERN =
     /\b(label|title|placeholder|tooltip|aria-label|alt|description|helperText|buttonText)\s*=\s*(["'])([^"']+)\2/gi;
 
-const TEXT_PATTERN = />\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*</g;
+const TEXT_PATTERN =
+    /(?<![=\->])>\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*<\s*(?:\/|[A-Za-z][\w.-]*|\s*>|\s*$|\{)/g;
 
 // Plain object-literal properties (e.g. title: "...", label: "...") in a column/config def
 // (as opposed to a JSX attribute, which uses `=` and is covered above).

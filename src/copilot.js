@@ -428,14 +428,15 @@ function injectImportStatement(document, edit, importStatement) {
 
 /**
  * Scans top-level components/functions in the document to find the one enclosing targetLine.
+ * Ensures hooks are ONLY injected inside valid React Functional Components or Custom Hooks,
+ * never inside plain constants, object literals, array literals, or module scope.
  * @param {import("vscode").TextDocument} document
  * @param {number} targetLine
  * @returns {{ headerLine: number, bodyOpenLine: number, indent: string, hasT: boolean } | null}
  */
 function findEnclosingComponent(document, targetLine) {
-    const componentStarts = [];
+    const candidateComponents = [];
 
-    // Find candidate component / function header lines
     for (let i = 0; i < document.lineCount; i++) {
         const line = document.lineAt(i).text;
         const trimmed = line.trim();
@@ -444,122 +445,178 @@ function findEnclosingComponent(document, targetLine) {
             trimmed.startsWith("//") ||
             trimmed.startsWith("/*") ||
             trimmed.startsWith("*") ||
-            trimmed.startsWith("import ")
+            trimmed.startsWith("import ") ||
+            trimmed.startsWith("type ") ||
+            trimmed.startsWith("interface ")
         ) {
             continue;
         }
 
-        const isCompDecl =
-            /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function(?:\s+[A-Za-z0-9_$]+)?\s*(?:<[^>]*>)?\s*\(/.test(trimmed) ||
-            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+[A-Za-z0-9_$]+\s*(?::\s*[^=]+)?\s*=\s*/.test(trimmed) ||
-            /^(?:export\s+default\s+)(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/.test(trimmed);
+        // 1. Function declaration: e.g. function MyComponent(...) or function useMyHook(...) or export default function(...)
+        const funcMatch = trimmed.match(
+            /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?\s*(?:<[^>]*>)?\s*\(/,
+        );
+        if (funcMatch) {
+            const name = funcMatch[1];
+            // Must be PascalCase component, custom hook (use...), or default export function
+            const isComponentOrHook =
+                !name ||
+                /^[A-Z][A-Za-z0-9_$]*$/.test(name) ||
+                /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
 
-        if (isCompDecl) {
-            componentStarts.push(i);
+            if (isComponentOrHook) {
+                candidateComponents.push({ startLine: i, type: "function" });
+                continue;
+            }
+        }
+
+        // 2. Arrow function or function expression: e.g. const MyComponent = (...) => { or const useHook = (...) => {
+        // Must NOT be an array literal (= [), plain object (= { without arrow), or primitive
+        const varMatch = trimmed.match(
+            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*(?::\s*[^=]+)?\s*=\s*(?:React\.)?(?:memo|forwardRef)?\s*(.*)$/,
+        );
+        if (varMatch) {
+            const name = varMatch[1];
+            const rest = varMatch[2] || "";
+
+            // Name must be PascalCase or custom hook
+            const isPascalOrHook =
+                /^[A-Z][A-Za-z0-9_$]*$/.test(name) ||
+                /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
+
+            if (isPascalOrHook) {
+                // Must be an arrow function or function expression, NOT array literal, object, or primitive
+                const isFunctionDef =
+                    /=>/.test(rest) ||
+                    /\bfunction\b/.test(rest) ||
+                    /^\s*\([^)]*\)\s*=>/.test(rest) ||
+                    /^\s*(?:React\.)?(?:memo|forwardRef)\s*\(/.test(trimmed);
+
+                // Check next few lines if the arrow function signature spans multiple lines
+                let foundMultiLineArrow = isFunctionDef;
+                if (!foundMultiLineArrow && !/^\s*\[/.test(rest) && !/^\s*\{/.test(rest)) {
+                    for (let j = i + 1; j < Math.min(document.lineCount, i + 5); j++) {
+                        const nextTrimmed = document.lineAt(j).text.trim();
+                        if (/=>/.test(nextTrimmed) || /\bfunction\b/.test(nextTrimmed)) {
+                            foundMultiLineArrow = true;
+                            break;
+                        }
+                        if (/[;=]/.test(nextTrimmed)) break;
+                    }
+                }
+
+                if (foundMultiLineArrow) {
+                    candidateComponents.push({ startLine: i, type: "arrow" });
+                    continue;
+                }
+            }
+        }
+
+        // 3. Anonymous default export arrow component: e.g. export default (...) => {
+        if (/^export\s+default\s+(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/.test(trimmed)) {
+            candidateComponents.push({ startLine: i, type: "arrow" });
         }
     }
 
-    if (componentStarts.length === 0) {
+    if (candidateComponents.length === 0) {
         return null;
     }
 
-    let bestStartLine = -1;
-    for (let i = componentStarts.length - 1; i >= 0; i--) {
-        if (componentStarts[i] <= targetLine) {
-            bestStartLine = componentStarts[i];
-            break;
-        }
-    }
+    // Evaluate candidates to find the one that encloses targetLine
+    const validEnclosing = [];
 
-    if (bestStartLine === -1) {
-        return null;
-    }
+    for (const candidate of candidateComponents) {
+        let bodyOpenLine = -1;
 
-    // Find the component's body opening `{` starting from bestStartLine
-    let bodyOpenLine = -1;
-    let foundArrow = false;
-    let isFunctionDecl = false;
-
-    for (let i = bestStartLine; i < document.lineCount; i++) {
-        const lineText = document.lineAt(i).text;
-
-        if (lineText.includes("function") && !foundArrow) {
-            isFunctionDecl = true;
-        }
-
-        if (lineText.includes("=>")) {
-            foundArrow = true;
-            const arrowIndex = lineText.indexOf("=>");
-            const afterArrow = lineText.slice(arrowIndex + 2);
-            if (afterArrow.includes("{")) {
-                bodyOpenLine = i;
-                break;
+        if (candidate.type === "function") {
+            // Find closing ')' of parameter list, then '{'
+            let foundParen = false;
+            for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 25); i++) {
+                const lineText = document.lineAt(i).text;
+                if (lineText.includes(")")) foundParen = true;
+                if (foundParen && lineText.includes("{")) {
+                    bodyOpenLine = i;
+                    break;
+                }
             }
-        } else if (foundArrow && lineText.includes("{")) {
-            bodyOpenLine = i;
-            break;
-        } else if (isFunctionDecl && lineText.includes("{")) {
-            if (lineText.includes(")") && lineText.indexOf("{") > lineText.lastIndexOf(")")) {
-                bodyOpenLine = i;
-                break;
-            } else if (!lineText.includes("(")) {
-                bodyOpenLine = i;
-                break;
-            }
-        } else if (lineText.includes("{") && !lineText.includes("=>") && !lineText.includes("(")) {
-            bodyOpenLine = i;
-            break;
-        }
-
-        if (i > targetLine + 50) {
-            break;
-        }
-    }
-
-    if (bodyOpenLine === -1) {
-        for (let i = bestStartLine; i < document.lineCount; i++) {
-            if (document.lineAt(i).text.includes("{")) {
-                bodyOpenLine = i;
-                break;
-            }
-        }
-    }
-
-    if (bodyOpenLine === -1) {
-        return null;
-    }
-
-    // Determine component boundaries to check if targetLine is actually inside
-    let depth = 0;
-    let bodyCloseLine = document.lineCount - 1;
-    let foundStart = false;
-
-    for (let i = bodyOpenLine; i < document.lineCount; i++) {
-        const lineText = document.lineAt(i).text;
-        for (const char of lineText) {
-            if (char === "{") {
-                depth++;
-                foundStart = true;
-            } else if (char === "}") {
-                depth--;
-                if (foundStart && depth === 0) {
-                    bodyCloseLine = i;
+        } else {
+            // For arrow function, find '=>' then '{'
+            let foundArrow = false;
+            for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 25); i++) {
+                const lineText = document.lineAt(i).text;
+                if (lineText.includes("=>")) {
+                    foundArrow = true;
+                    const arrowIdx = lineText.indexOf("=>");
+                    const after = lineText.slice(arrowIdx + 2);
+                    if (after.includes("{")) {
+                        bodyOpenLine = i;
+                        break;
+                    }
+                } else if (foundArrow && lineText.includes("{")) {
+                    bodyOpenLine = i;
                     break;
                 }
             }
         }
-        if (foundStart && depth === 0) break;
+
+        if (bodyOpenLine === -1) continue;
+
+        // Find closing '}' of component body
+        let depth = 0;
+        let bodyCloseLine = -1;
+        let foundStart = false;
+
+        for (let i = bodyOpenLine; i < document.lineCount; i++) {
+            const lineText = document.lineAt(i).text;
+            let inQuote = null;
+
+            for (let j = 0; j < lineText.length; j++) {
+                const char = lineText[j];
+                if (inQuote) {
+                    if (char === inQuote && lineText[j - 1] !== "\\") inQuote = null;
+                } else if (char === '"' || char === "'" || char === "`") {
+                    inQuote = char;
+                } else if (char === "/" && lineText[j + 1] === "/") {
+                    break; // line comment
+                } else if (char === "{") {
+                    depth++;
+                    foundStart = true;
+                } else if (char === "}") {
+                    depth--;
+                    if (foundStart && depth === 0) {
+                        bodyCloseLine = i;
+                        break;
+                    }
+                }
+            }
+            if (foundStart && depth === 0) break;
+        }
+
+        if (bodyCloseLine === -1) bodyCloseLine = document.lineCount - 1;
+
+        // Check if targetLine is strictly inside this component
+        if (targetLine >= bodyOpenLine && targetLine <= bodyCloseLine) {
+            validEnclosing.push({
+                headerLine: candidate.startLine,
+                bodyOpenLine,
+                bodyCloseLine,
+            });
+        }
     }
 
-    if (targetLine > bodyCloseLine && bodyCloseLine > bodyOpenLine) {
+    if (validEnclosing.length === 0) {
         return null;
     }
+
+    // If multiple enclosing components (e.g. subcomponents / custom hooks), pick innermost (smallest range)
+    validEnclosing.sort((a, b) => (a.bodyCloseLine - a.bodyOpenLine) - (b.bodyCloseLine - b.bodyOpenLine));
+    const best = validEnclosing[0];
 
     // Check if component already declares `t`
     const componentText = document.getText(
         new vscode.Range(
-            new vscode.Position(bestStartLine, 0),
-            new vscode.Position(bodyCloseLine, document.lineAt(bodyCloseLine).text.length),
+            new vscode.Position(best.headerLine, 0),
+            new vscode.Position(best.bodyCloseLine, document.lineAt(best.bodyCloseLine).text.length),
         ),
     );
 
@@ -571,16 +628,29 @@ function findEnclosingComponent(document, targetLine) {
         /\bfunction\s+t\s*\(/.test(componentText) ||
         /\buseTranslation\s*\(\s*\)/.test(componentText) ||
         /\buseTranslations\s*\(\s*\)/.test(componentText) ||
-        /\buseIntl\s*\(\s*\)/.test(componentText);
+        /\buseIntl\s*\(\s*\)/.test(componentText) ||
+        /\buseLingui\s*\(\s*\)/.test(componentText);
 
-    const headerLineText = document.lineAt(bestStartLine).text;
-    const headerIndentMatch = headerLineText.match(/^\s*/);
-    const baseIndent = headerIndentMatch ? headerIndentMatch[0] : "";
-    const indent = baseIndent + "    ";
+    // Calculate proper indentation for hook insertion
+    let indent = "";
+    if (best.bodyOpenLine + 1 < document.lineCount) {
+        const nextLine = document.lineAt(best.bodyOpenLine + 1).text;
+        const nextIndent = nextLine.match(/^\s*/);
+        if (nextIndent && nextIndent[0].length > 0 && nextLine.trim().length > 0) {
+            indent = nextIndent[0];
+        }
+    }
+
+    if (!indent) {
+        const headerLineText = document.lineAt(best.headerLine).text;
+        const headerIndentMatch = headerLineText.match(/^\s*/);
+        const baseIndent = headerIndentMatch ? headerIndentMatch[0] : "";
+        indent = baseIndent + "    ";
+    }
 
     return {
-        headerLine: bestStartLine,
-        bodyOpenLine,
+        headerLine: best.headerLine,
+        bodyOpenLine: best.bodyOpenLine,
         indent,
         hasT,
     };
@@ -712,10 +782,16 @@ async function localizeWithCopilot(document, range) {
                 2,
             ),
             "",
-            "Rules:",
-            "1. Match existing i18n patterns in the codebase (such as t('key'), formatMessage, react-i18next).",
-            "2. Do NOT include surrounding property names or keys in 'replacement'.",
-            "3. Output valid JSON only with NO markdown fences or commentary.",
+            "Rules & Syntax Placement Guidelines:",
+            "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be placed at the top level of React functional components or custom hooks. NEVER place 'const { t } = useTranslation();' inside object literals, arrays (such as column definitions), loops, helper functions, or at module scope.",
+            "2. If the string is inside a React Component or Hook, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of the enclosing component).",
+            "3. If the string is in a top-level module constant, table columns array, or utility outside any React component (e.g. 'const columns = [...]'), use t('...') in the replacement and provide the appropriate import (e.g. 'import { useTranslation } from 'react-i18next';' or 'import i18n from 'i18next';'), but set neededHook to '' (empty string).",
+            "4. Replacement Syntax:",
+            "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
+            "   - In JSX children (e.g. >...<): use {t('key')}.",
+            "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
+            "5. Do NOT include surrounding property names or keys in 'replacement'.",
+            "6. Output valid JSON only with NO markdown fences or commentary.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -890,9 +966,15 @@ async function localizeAllInDocument(document, diagnostics) {
                 2,
             ),
             "",
-            "Rules:",
-            "1. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
-            "2. Ensure valid JSON syntax.",
+            "Rules & Syntax Placement Guidelines:",
+            "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be called at the top level of React functional components or custom hooks. NEVER place hook declarations inside object literals, arrays (e.g. table columns), loops, or module-level constants.",
+            "2. If strings are inside React components or hooks, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of enclosing component functions). If all strings are in module-level constants or non-components, set neededHook to '' (empty string).",
+            "3. Replacement Syntax:",
+            "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
+            "   - In JSX children (e.g. >...<): use {t('key')}.",
+            "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
+            "4. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
+            "5. Ensure valid JSON syntax matching the schema.",
         ]
             .filter(Boolean)
             .join("\n");
