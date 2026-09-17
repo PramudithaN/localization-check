@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -104,6 +104,21 @@
           "type": "string",
           "default": "",
           "description": "Optional custom prompt instructions passed to Copilot when generating localization replacements (e.g., 'Use react-intl formatMessage' or 'Use i18n t()')."
+        },
+        "localizationCheck.dictionaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional relative path to primary localization JSON dictionary (e.g., 'src/utils/localization/lang-json/en.json' or 'locales/en.json'). If empty, en.json is auto-discovered."
+        },
+        "localizationCheck.autoUpdateDictionary": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically insert generated translation keys and English values into en.json (and sibling locale files) when Copilot localizes strings."
+        },
+        "localizationCheck.autoImportTranslation": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically insert missing i18n imports (e.g. useTranslation) and hook declarations (const { t } = useTranslation()) into the file."
         }
       }
     }

@@ -17,13 +17,15 @@
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.
 - **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix (💡) or interactive CodeLens buttons.
+- **Auto-Defines Translation Function**: Detects if `useTranslation` / `t` hook and imports are missing in the active component and inserts them automatically.
+- **Auto-Syncs Translation Dictionaries**: Discovers `en.json` (and sibling locale files like `sin.json` / `es.json`) in the workspace and automatically appends the generated key-value pairs into the dictionary.
 
 ## Commands
 
 - **Localization: Run Full Check (git staged)**: executes the project's localization check script on git-staged changes and displays results in the output panel.
 - **Localization: Re-scan Current File**: manually scans the active file again.
-- **Localization: Add Localization with Copilot**: sends the selected or underlined hardcoded string to GitHub Copilot's Language Model and automatically replaces it with the appropriate localized expression (e.g. `t('...')` or `formatMessage(...)`).
-- **Localization: Localize All in Current File with Copilot**: sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document at once.
+- **Localization: Add Localization with Copilot**: sends the selected or underlined hardcoded string to GitHub Copilot's Language Model, inserts missing imports/hooks, updates the dictionary, and replaces the string inline with the localized expression (e.g. `t('...')` or `formatMessage(...)`).
+- **Localization: Localize All in Current File with Copilot**: sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document and translation dictionaries at once.
 
 ## Configuration
 
@@ -37,7 +39,10 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
   "localizationCheck.liveScanOnlyChangedFiles": true,
   "localizationCheck.warnOnStage": true,
   "localizationCheck.enableCodeLens": true,
-  "localizationCheck.copilotPromptHint": ""
+  "localizationCheck.copilotPromptHint": "",
+  "localizationCheck.dictionaryPath": "",
+  "localizationCheck.autoUpdateDictionary": true,
+  "localizationCheck.autoImportTranslation": true
 }
 ```
 
@@ -50,6 +55,9 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
 - `localizationCheck.enableCodeLens`: displays clickable `Add localization with Copilot` CodeLens buttons above detected hardcoded strings. Default: `true`.
 - `localizationCheck.copilotPromptHint`: optional custom instructions passed to Copilot (e.g. `"Use react-intl formatMessage"` or `"Use i18next"`). Default: `""`.
+- `localizationCheck.dictionaryPath`: optional relative path or glob to primary dictionary file (e.g. `"src/utils/localization/lang-json/en.json"`). Default: `""` (auto-detects `en.json`).
+- `localizationCheck.autoUpdateDictionary`: automatically appends generated translation keys and English values into `en.json` (and sibling locale files). Default: `true`.
+- `localizationCheck.autoImportTranslation`: automatically inserts missing i18n imports (e.g. `useTranslation`) and hook declarations (`const { t } = useTranslation();`) into the file. Default: `true`.
 
 ## Try It Locally
 
@@ -102,6 +110,7 @@ This extension has no runtime npm dependencies. The codebase is organized modula
 - `extension.js`: Main entry point and activation lifecycle handler.
 - `src/constants.js`: Shared regex patterns, configuration keys, and language targets.
 - `src/detector.js`: Detection rules for attributes, JSX text, and object properties.
+- `src/dictionary.js`: Translation dictionary discovery and JSON synchronization for `en.json` and sibling locale files.
 - `src/copilot.js`: Direct GitHub Copilot Language Model integration and workspace edit handler.
 - `src/providers.js`: CodeAction (Quick Fix) and CodeLens providers.
 - `src/git.js`: Git extension integration and change detection watchers.
