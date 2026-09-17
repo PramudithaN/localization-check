@@ -19,6 +19,8 @@
 - **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix (💡) or interactive CodeLens buttons.
 - **Auto-Defines Translation Function**: Detects if `useTranslation` / `t` hook and imports are missing in the active component and inserts them automatically.
 - **Auto-Syncs Translation Dictionaries**: Discovers `en.json` (and sibling locale files like `sin.json` / `es.json`) in the workspace and automatically appends the generated key-value pairs into the dictionary.
+- **Learn & Flag Hardcoded Patterns**: One-click action to flag previously unflagged JSX tags, attributes, or object properties. Automatically updates local settings and submits an issue to GitHub to improve detection for everyone.
+- **Ignore False Positives**: Easily ignore non-user-facing strings, technical identifiers, or custom attributes across your workspace and report false positive exceptions.
 
 ## Commands
 
@@ -26,6 +28,8 @@
 - **Localization: Re-scan Current File**: manually scans the active file again.
 - **Localization: Add Localization with Copilot**: sends the selected or underlined hardcoded string to GitHub Copilot's Language Model, inserts missing imports/hooks, updates the dictionary, and replaces the string inline with the localized expression (e.g. `t('...')` or `formatMessage(...)`).
 - **Localization: Localize All in Current File with Copilot**: sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document and translation dictionaries at once.
+- **Localization: Flag Pattern as Hardcoded Rule (Report & Learn)**: detects the JSX tag, attribute, or property at cursor, adds it to your project rules, immediately re-scans the workspace, and creates a rule suggestion issue on GitHub.
+- **Localization: Mark / Ignore as False Positive (Report & Learn)**: ignores a specific word, attribute, or property so it is never flagged again, and creates a false positive report on GitHub.
 
 ## Configuration
 
@@ -42,7 +46,15 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
   "localizationCheck.copilotPromptHint": "",
   "localizationCheck.dictionaryPath": "",
   "localizationCheck.autoUpdateDictionary": true,
-  "localizationCheck.autoImportTranslation": true
+  "localizationCheck.autoImportTranslation": true,
+  "localizationCheck.customAttributes": ["caption", "headerTitle"],
+  "localizationCheck.customProperties": ["subTitle", "bannerText"],
+  "localizationCheck.customTags": ["Typography", "Badge", "Heading"],
+  "localizationCheck.ignoredWords": ["primary-dark", "UUID"],
+  "localizationCheck.ignoredAttributes": ["data-testid"],
+  "localizationCheck.ignoredProperties": ["id", "key"],
+  "localizationCheck.ignoredTags": ["code", "pre", "script", "style"],
+  "localizationCheck.githubRepo": "PramudithaN/localization-check"
 }
 ```
 
@@ -58,6 +70,14 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.dictionaryPath`: optional relative path or glob to primary dictionary file (e.g. `"src/utils/localization/lang-json/en.json"`). Default: `""` (auto-detects `en.json`).
 - `localizationCheck.autoUpdateDictionary`: automatically appends generated translation keys and English values into `en.json` (and sibling locale files). Default: `true`.
 - `localizationCheck.autoImportTranslation`: automatically inserts missing i18n imports (e.g. `useTranslation`) and hook declarations (`const { t } = useTranslation();`) into the file. Default: `true`.
+- `localizationCheck.customAttributes`: array of additional JSX/HTML attribute names to flag as hardcoded strings. Default: `[]`.
+- `localizationCheck.customProperties`: array of additional object property names to flag as hardcoded strings. Default: `[]`.
+- `localizationCheck.customTags`: array of additional JSX/HTML component/tag names whose inner text should be flagged. Default: `[]`.
+- `localizationCheck.ignoredWords`: array of words or phrases that should never be flagged. Default: `[]`.
+- `localizationCheck.ignoredAttributes`: array of attribute names to ignore and never flag. Default: `[]`.
+- `localizationCheck.ignoredProperties`: array of property names to ignore and never flag. Default: `[]`.
+- `localizationCheck.ignoredTags`: array of tag names whose text should be ignored. Default: `["code", "pre", "script", "style"]`.
+- `localizationCheck.githubRepo`: target repository (`owner/repo`) for submitting automated rule suggestions and false positives. Default: `"PramudithaN/localization-check"`.
 
 ## Try It Locally
 
@@ -98,7 +118,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.3.2.vsix
+code --install-extension localization-check-0.4.0.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
@@ -116,4 +136,5 @@ This extension has no runtime npm dependencies. The codebase is organized modula
 - `src/git.js`: Git extension integration and change detection watchers.
 - `src/diagnostics.js`: Diagnostics collection and severity mapping.
 - `src/commands.js`: Command handlers for manual, workspace checks, and Copilot localization.
+- `src/rules.js`: Interactive rule learning, false positive management, and automated GitHub issue creation.
 - `package.json`: Extension manifest and configuration contribution settings.

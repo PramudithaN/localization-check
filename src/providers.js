@@ -38,6 +38,30 @@ class LocalizationCodeActionProvider {
                 arguments: [document.uri, diagnostic.range],
             };
             actions.push(action);
+
+            const ignoreAction = new vscode.CodeAction(
+                "+(-) Mark / Ignore as False Positive",
+                vscode.CodeActionKind.QuickFix,
+            );
+            ignoreAction.diagnostics = [diagnostic];
+            ignoreAction.command = {
+                command: "localizationCheck.markFalsePositive",
+                title: "Mark as False Positive",
+                arguments: [document.uri, diagnostic.range],
+            };
+            actions.push(ignoreAction);
+
+            const flagAction = new vscode.CodeAction(
+                "(!) Flag Pattern as Hardcoded Rule",
+                vscode.CodeActionKind.QuickFix,
+            );
+            flagAction.diagnostics = [diagnostic];
+            flagAction.command = {
+                command: "localizationCheck.flagHardcoded",
+                title: "Flag as Hardcoded Rule",
+                arguments: [document.uri, diagnostic.range],
+            };
+            actions.push(flagAction);
         });
 
         // Batch fix for the whole document if there are multiple occurrences

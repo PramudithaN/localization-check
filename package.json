@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -31,12 +31,34 @@
       {
         "command": "localizationCheck.localizeWithCopilot",
         "title": "Localization: Add Localization with Copilot",
-        "icon": "$(sparkle)"
+        "icon": {
+          "light": "images/LF-ico.png",
+          "dark": "images/LF-ico.png"
+        }
       },
       {
         "command": "localizationCheck.localizeAllInFile",
         "title": "Localization: Localize All in Current File with Copilot",
-        "icon": "$(sparkle)"
+        "icon": {
+          "light": "images/LF-ico.png",
+          "dark": "images/LF-ico.png"
+        }
+      },
+      {
+        "command": "localizationCheck.flagHardcoded",
+        "title": "Localization: Flag Pattern as Hardcoded Rule (Report & Learn)",
+        "icon": {
+          "light": "images/LF-ico.png",
+          "dark": "images/LF-ico.png"
+        }
+      },
+      {
+        "command": "localizationCheck.markFalsePositive",
+        "title": "Localization: Mark / Ignore as False Positive (Report & Learn)",
+        "icon": {
+          "light": "images/LF-ico.png",
+          "dark": "images/LF-ico.png"
+        }
       }
     ],
     "menus": {
@@ -44,7 +66,9 @@
         { "command": "localizationCheck.run" },
         { "command": "localizationCheck.scanFile" },
         { "command": "localizationCheck.localizeWithCopilot" },
-        { "command": "localizationCheck.localizeAllInFile" }
+        { "command": "localizationCheck.localizeAllInFile" },
+        { "command": "localizationCheck.flagHardcoded" },
+        { "command": "localizationCheck.markFalsePositive" }
       ],
       "editor/title": [
         {
@@ -56,12 +80,22 @@
       "editor/context": [
         {
           "command": "localizationCheck.localizeWithCopilot",
-          "group": "1_modification",
+          "group": "1_modification@1",
           "when": "editorTextFocus"
         },
         {
           "command": "localizationCheck.localizeAllInFile",
-          "group": "1_modification",
+          "group": "1_modification@2",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "localizationCheck.flagHardcoded",
+          "group": "1_modification@3",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "localizationCheck.markFalsePositive",
+          "group": "1_modification@4",
           "when": "editorTextFocus"
         }
       ]
@@ -119,6 +153,53 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically insert missing i18n imports (e.g. useTranslation) and hook declarations (const { t } = useTranslation()) into the file."
+        },
+        "localizationCheck.customAttributes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional HTML/JSX attribute names that should be flagged as hardcoded strings (e.g. ['caption', 'headerTitle', 'badgeText'])."
+        },
+        "localizationCheck.customProperties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional object property names that should be flagged as hardcoded strings (e.g. ['subTitle', 'heading', 'bannerText'])."
+        },
+        "localizationCheck.customTags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Additional JSX/HTML component/tag names whose inner text should be flagged as hardcoded (e.g. ['Typography', 'Badge', 'Alert'])."
+        },
+        "localizationCheck.ignoredWords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Specific words, phrases, or technical literals that should never be flagged as hardcoded strings."
+        },
+        "localizationCheck.ignoredAttributes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Attribute names to ignore and never flag (e.g. ['data-testid', 'className'])."
+        },
+        "localizationCheck.ignoredProperties": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Object property names to ignore and never flag (e.g. ['id', 'key', 'status'])."
+        },
+        "localizationCheck.ignoredTags": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["code", "pre", "script", "style"],
+          "description": "JSX/HTML tag names whose inner text should be ignored (e.g. ['code', 'pre'])."
+        },
+        "localizationCheck.githubRepo": {
+          "type": "string",
+          "default": "PramudithaN/localization-check",
+          "description": "GitHub repository (owner/repo) where flagged rules and false positives are submitted as issues."
         }
       }
     }

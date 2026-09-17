@@ -1,7 +1,14 @@
 const vscode = require("vscode");
-const { SOURCE_NAME, RELEVANT_LANGUAGES } = require("./src/constants");
+const { SOURCE_NAME, RELEVANT_LANGUAGES, CONFIG_SECTION } = require("./src/constants");
 const { scanDocument, scanAllOpenDocuments } = require("./src/diagnostics");
-const { runFullCheck, scanCurrentFile, handleLocalizeWithCopilot, handleLocalizeAllInFile } = require("./src/commands");
+const {
+    runFullCheck,
+    scanCurrentFile,
+    handleLocalizeWithCopilot,
+    handleLocalizeAllInFile,
+    handleFlagHardcodedCommand,
+    handleMarkFalsePositiveCommand,
+} = require("./src/commands");
 const { LocalizationCodeActionProvider, LocalizationCodeLensProvider } = require("./src/providers");
 const { watchStagedChanges, watchChangedFiles } = require("./src/git");
 
@@ -32,6 +39,14 @@ function activate(context) {
             "localizationCheck.localizeAllInFile",
             doc => handleLocalizeAllInFile(diagnostics, doc),
         ),
+        vscode.commands.registerCommand(
+            "localizationCheck.flagHardcoded",
+            (doc, range) => handleFlagHardcodedCommand(diagnostics, doc, range),
+        ),
+        vscode.commands.registerCommand(
+            "localizationCheck.markFalsePositive",
+            (doc, range) => handleMarkFalsePositiveCommand(diagnostics, doc, range),
+        ),
     );
 
     // Register CodeAction and CodeLens providers for supported languages
@@ -53,6 +68,16 @@ function activate(context) {
 
     // Initial scan of currently open documents
     scanAllOpenDocuments(diagnostics);
+
+    // Listen to configuration changes
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration(CONFIG_SECTION)) {
+                scanAllOpenDocuments(diagnostics);
+                codeLensProvider.refresh();
+            }
+        }),
+    );
 
     // Document lifecycle event handlers
     context.subscriptions.push(

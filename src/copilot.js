@@ -786,12 +786,13 @@ async function localizeWithCopilot(document, range) {
             "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be placed at the top level of React functional components or custom hooks. NEVER place 'const { t } = useTranslation();' inside object literals, arrays (such as column definitions), loops, helper functions, or at module scope.",
             "2. If the string is inside a React Component or Hook, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of the enclosing component).",
             "3. If the string is in a top-level module constant, table columns array, or utility outside any React component (e.g. 'const columns = [...]'), use t('...') in the replacement and provide the appropriate import (e.g. 'import { useTranslation } from 'react-i18next';' or 'import i18n from 'i18next';'), but set neededHook to '' (empty string).",
-            "4. Replacement Syntax:",
+            "4. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "5. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "5. Do NOT include surrounding property names or keys in 'replacement'.",
-            "6. Output valid JSON only with NO markdown fences or commentary.",
+            "6. Do NOT include surrounding property names or keys in 'replacement'.",
+            "7. Output valid JSON only with NO markdown fences or commentary.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -969,12 +970,13 @@ async function localizeAllInDocument(document, diagnostics) {
             "Rules & Syntax Placement Guidelines:",
             "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be called at the top level of React functional components or custom hooks. NEVER place hook declarations inside object literals, arrays (e.g. table columns), loops, or module-level constants.",
             "2. If strings are inside React components or hooks, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of enclosing component functions). If all strings are in module-level constants or non-components, set neededHook to '' (empty string).",
-            "3. Replacement Syntax:",
+            "3. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "4. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "4. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
-            "5. Ensure valid JSON syntax matching the schema.",
+            "5. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
+            "6. Ensure valid JSON syntax matching the schema.",
         ]
             .filter(Boolean)
             .join("\n");

@@ -4,6 +4,7 @@ const { execFile } = require("child_process");
 const { CONFIG_SECTION, DEFAULT_SCRIPT_PATH, SOURCE_NAME } = require("./constants");
 const { scanDocument } = require("./diagnostics");
 const { localizeWithCopilot, localizeAllInDocument } = require("./copilot");
+const { handleFlagAsHardcoded, handleMarkAsFalsePositive } = require("./rules");
 
 /**
  * Runs the workspace check-localization.js script on staged files and shows the output.
@@ -251,9 +252,35 @@ async function handleLocalizeAllInFile(diagnosticsCollection, documentOrUri) {
     await localizeAllInDocument(document, diagnostics);
 }
 
+/**
+ * Handles the "Flag as Hardcoded" command.
+ * @param {vscode.DiagnosticCollection} diagnosticsCollection
+ * @param {import("vscode").TextDocument | import("vscode").Uri | any} [documentOrUri]
+ * @param {import("vscode").Range | any} [rawRange]
+ */
+async function handleFlagHardcodedCommand(diagnosticsCollection, documentOrUri, rawRange) {
+    const document = await resolveDocument(documentOrUri);
+    const range = resolveRange(rawRange);
+    await handleFlagAsHardcoded(diagnosticsCollection, document, range);
+}
+
+/**
+ * Handles the "Mark as False Positive" command.
+ * @param {vscode.DiagnosticCollection} diagnosticsCollection
+ * @param {import("vscode").TextDocument | import("vscode").Uri | any} [documentOrUri]
+ * @param {import("vscode").Range | any} [rawRange]
+ */
+async function handleMarkFalsePositiveCommand(diagnosticsCollection, documentOrUri, rawRange) {
+    const document = await resolveDocument(documentOrUri);
+    const range = resolveRange(rawRange);
+    await handleMarkAsFalsePositive(diagnosticsCollection, document, range);
+}
+
 module.exports = {
     runFullCheck,
     scanCurrentFile,
     handleLocalizeWithCopilot,
     handleLocalizeAllInFile,
+    handleFlagHardcodedCommand,
+    handleMarkFalsePositiveCommand,
 };

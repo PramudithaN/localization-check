@@ -1,8 +1,13 @@
+const vscode = require("vscode");
 const {
     ATTRIBUTE_PATTERN,
     TEXT_PATTERN,
     OBJECT_PROPERTY_PATTERN,
     NOTIFICATION_FUNCTION_PATTERN,
+    DEFAULT_ATTRIBUTES,
+    DEFAULT_OBJECT_PROPERTIES,
+    DEFAULT_TAGS,
+    CONFIG_SECTION,
 } = require("./constants");
 
 const NOTIFICATION_STATUS_KEYWORDS = new Set([
@@ -14,6 +19,12 @@ const NOTIFICATION_STATUS_KEYWORDS = new Set([
     "loading",
     "default",
     "open",
+    "danger",
+    "alert",
+    "notice",
+    "critical",
+    "primary",
+    "secondary",
 ]);
 
 const IGNORED_PROGRAMMING_IDENTIFIERS = new Set([
@@ -104,16 +115,117 @@ const IGNORED_PROGRAMMING_IDENTIFIERS = new Set([
 ]);
 
 /**
+ * Retrieves custom configuration rules and ignored items from VS Code settings.
+ * @returns {{
+ *   customAttributes: string[],
+ *   customProperties: string[],
+ *   customTags: string[],
+ *   ignoredWords: Set<string>,
+ *   ignoredAttributes: Set<string>,
+ *   ignoredProperties: Set<string>,
+ *   ignoredTags: Set<string>
+ * }}
+ */
+function getCustomRules() {
+    try {
+        if (vscode && vscode.workspace) {
+            const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+            const customAttributes = config.get("customAttributes", []) || [];
+            const customProperties = config.get("customProperties", []) || [];
+            const customTags = config.get("customTags", []) || [];
+            const ignoredWordsArray = config.get("ignoredWords", []) || [];
+            const ignoredAttributesArray = config.get("ignoredAttributes", []) || [];
+            const ignoredPropertiesArray = config.get("ignoredProperties", []) || [];
+            const ignoredTagsArray = config.get("ignoredTags", []) || [];
+
+            return {
+                customAttributes: Array.isArray(customAttributes) ? customAttributes : [],
+                customProperties: Array.isArray(customProperties) ? customProperties : [],
+                customTags: Array.isArray(customTags) ? customTags : [],
+                ignoredWords: new Set(ignoredWordsArray.map(w => String(w).trim())),
+                ignoredAttributes: new Set(ignoredAttributesArray.map(a => String(a).trim().toLowerCase())),
+                ignoredProperties: new Set(ignoredPropertiesArray.map(p => String(p).trim().toLowerCase())),
+                ignoredTags: new Set(ignoredTagsArray.map(t => String(t).trim().toLowerCase())),
+            };
+        }
+    } catch {
+        // fallback
+    }
+
+    return {
+        customAttributes: [],
+        customProperties: [],
+        customTags: [],
+        ignoredWords: new Set(),
+        ignoredAttributes: new Set(),
+        ignoredProperties: new Set(),
+        ignoredTags: new Set(),
+    };
+}
+
+/**
+ * Escapes special regex characters in user-provided identifier strings.
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeRegex(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Compiles dynamic regex patterns based on active built-in and user-configured rules.
+ * @param {ReturnType<typeof getCustomRules>} [rules]
+ * @returns {{
+ *   attrPattern: RegExp | null,
+ *   propPattern: RegExp | null,
+ *   rules: ReturnType<typeof getCustomRules>
+ * }}
+ */
+function getCompiledPatterns(rules = null) {
+    const activeRules = rules || getCustomRules();
+
+    const attrs = Array.from(
+        new Set([...DEFAULT_ATTRIBUTES, ...activeRules.customAttributes])
+    ).filter(attr => !activeRules.ignoredAttributes.has(attr.toLowerCase()));
+
+    const attrPattern = attrs.length > 0
+        ? new RegExp(`\\b(${attrs.map(escapeRegex).join("|")})\\s*=\\s*(["'])([^"']+)\\2`, "gi")
+        : null;
+
+    const props = Array.from(
+        new Set([...DEFAULT_OBJECT_PROPERTIES, ...activeRules.customProperties])
+    ).filter(prop => !activeRules.ignoredProperties.has(prop.toLowerCase()));
+
+    const propPattern = props.length > 0
+        ? new RegExp("\\b(" + props.map(escapeRegex).join("|") + ")\\s*:\\s*([\"'`])([^\"'`]+)\\2", "gi")
+        : null;
+
+    return {
+        attrPattern,
+        propPattern,
+        rules: activeRules,
+    };
+}
+
+/**
  * Checks if a string value should be ignored (e.g. URLs, colors, IDs, punctuation, identifiers, etc.).
  * @param {string} value
+ * @param {ReturnType<typeof getCustomRules>} [rules]
  * @returns {boolean}
  */
-function ignoredValue(value) {
+function ignoredValue(value, rules = null) {
     if (!value || typeof value !== "string") return true;
     const trimmed = value.trim();
     if (trimmed.length < 2) return true;
 
+    if (rules && rules.ignoredWords) {
+        if (rules.ignoredWords.has(trimmed) || rules.ignoredWords.has(value)) {
+            return true;
+        }
+    }
+
     if (IGNORED_PROGRAMMING_IDENTIFIERS.has(trimmed)) return true;
+    if (NOTIFICATION_STATUS_KEYWORDS.has(trimmed.toLowerCase())) return true;
 
     return (
         /^[A-Z0-9_./:-]+$/.test(trimmed) ||
@@ -200,9 +312,10 @@ function getCommentIndexInLine(lineText) {
 /**
  * Finds hardcoded ranges in a single line of text matching attributes, JSX text, and object properties.
  * @param {string} lineText
+ * @param {ReturnType<typeof getCustomRules>} [customRules]
  * @returns {Array<{ start: number, end: number, message: string }>}
  */
-function findHardcodedRangesInLine(lineText) {
+function findHardcodedRangesInLine(lineText, customRules = null) {
     const hits = [];
     const trimmedLine = lineText.trim();
     if (trimmedLine.startsWith("//") || trimmedLine.startsWith("/*") || trimmedLine.startsWith("*")) {
@@ -218,23 +331,28 @@ function findHardcodedRangesInLine(lineText) {
     }
 
     const commentIndex = getCommentIndexInLine(lineText);
+    const { attrPattern, propPattern, rules } = getCompiledPatterns(customRules);
 
     let match;
-    ATTRIBUTE_PATTERN.lastIndex = 0;
-    while ((match = ATTRIBUTE_PATTERN.exec(lineText))) {
-        if (commentIndex !== -1 && match.index >= commentIndex) break;
-        const value = match[3];
-        const quote = match[2];
-        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
-            const quotedStr = quote + value + quote;
-            const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
-            const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
-            const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
-            hits.push({
-                start,
-                end,
-                message: `Hardcoded text in "${match[1]}" attribute: "${value}". Use t("...") instead.`,
-            });
+    if (attrPattern) {
+        attrPattern.lastIndex = 0;
+        while ((match = attrPattern.exec(lineText))) {
+            if (commentIndex !== -1 && match.index >= commentIndex) break;
+            const attrName = match[1];
+            if (rules.ignoredAttributes.has(attrName.toLowerCase())) continue;
+            const value = match[3];
+            const quote = match[2];
+            if (!ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const quotedStr = quote + value + quote;
+                const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
+                const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
+                const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
+                hits.push({
+                    start,
+                    end,
+                    message: `Hardcoded text in "${attrName}" attribute: "${value}". Use t("...") instead.`,
+                });
+            }
         }
     }
 
@@ -243,13 +361,20 @@ function findHardcodedRangesInLine(lineText) {
         if (commentIndex !== -1 && match.index >= commentIndex) break;
         const value = match[1].trim();
 
-        // Verify that the preceding `>` is preceded by a JSX tag or is the start of the line
+        // Check if preceding tag is an ignored tag e.g. <code>, <pre>
         const beforeMatch = lineText.slice(0, match.index);
+        const tagMatch = beforeMatch.match(/<([A-Za-z][\w.-]*)[^>]*$/);
+        const tagName = tagMatch ? tagMatch[1].toLowerCase() : "";
+        if (tagName && rules.ignoredTags.has(tagName)) {
+            continue;
+        }
+
+        // Verify that the preceding `>` is preceded by a JSX tag or is the start of the line
         const hasPrecedingJsxTag =
             beforeMatch.trim().length === 0 ||
             /<(?:\/?[A-Za-z][\w.-]*(?:\s+[^>]*)?|>)\s*$/.test(beforeMatch);
 
-        if (hasPrecedingJsxTag && !ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+        if (hasPrecedingJsxTag && !ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].indexOf(match[1]);
             hits.push({
                 start,
@@ -259,21 +384,25 @@ function findHardcodedRangesInLine(lineText) {
         }
     }
 
-    OBJECT_PROPERTY_PATTERN.lastIndex = 0;
-    while ((match = OBJECT_PROPERTY_PATTERN.exec(lineText))) {
-        if (commentIndex !== -1 && match.index >= commentIndex) break;
-        const value = match[3];
-        const quote = match[2];
-        if (!ignoredValue(value) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
-            const quotedStr = quote + value + quote;
-            const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
-            const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
-            const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
-            hits.push({
-                start,
-                end,
-                message: `Hardcoded value for "${match[1]}": "${value}". Use t("...") instead.`,
-            });
+    if (propPattern) {
+        propPattern.lastIndex = 0;
+        while ((match = propPattern.exec(lineText))) {
+            if (commentIndex !== -1 && match.index >= commentIndex) break;
+            const propName = match[1];
+            if (rules.ignoredProperties.has(propName.toLowerCase())) continue;
+            const value = match[3];
+            const quote = match[2];
+            if (!ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const quotedStr = quote + value + quote;
+                const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
+                const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
+                const end = start + (quoteStart !== -1 ? quotedStr.length : value.length);
+                hits.push({
+                    start,
+                    end,
+                    message: `Hardcoded value for "${propName}": "${value}". Use t("...") instead.`,
+                });
+            }
         }
     }
 
@@ -283,9 +412,11 @@ function findHardcodedRangesInLine(lineText) {
 /**
  * Finds hardcoded strings in notification and toast function calls across full (multiline) document text.
  * @param {string} fullText
+ * @param {ReturnType<typeof getCustomRules>} [customRules]
  * @returns {Array<{ startOffset: number, endOffset: number, message: string }>}
  */
-function findNotificationHits(fullText) {
+function findNotificationHits(fullText, customRules = null) {
+    const rules = customRules || getCustomRules();
     const hits = [];
     NOTIFICATION_FUNCTION_PATTERN.lastIndex = 0;
     let match;
@@ -327,10 +458,12 @@ function findNotificationHits(fullText) {
             const argsStartOffset = openParenIndex + 1;
             const args = parseFunctionArguments(argsStr);
 
-            // If the first argument is a status/type keyword, skip it and check subsequent user-facing messages
-            let startArgIndex = 0;
-            if (args.length > 1) {
-                const firstArgClean = args[0].text.trim().replace(/^["']|["']$/g, "").toLowerCase();
+            // In notification and toast functions (e.g. showNotification, showToast, notify),
+            // when multiple arguments exist (args.length > 1), the first argument is ALWAYS
+            // the severity/type keyword (e.g. 'warn', 'error', 'info', 'success') and must NEVER be flagged or localized.
+            let startArgIndex = args.length > 1 ? 1 : 0;
+            if (startArgIndex === 0 && args.length === 1) {
+                const firstArgClean = args[0].text.trim().replace(/^["'`]|["'`]$/g, "").toLowerCase();
                 if (NOTIFICATION_STATUS_KEYWORDS.has(firstArgClean)) {
                     startArgIndex = 1;
                 }
@@ -354,7 +487,7 @@ function findNotificationHits(fullText) {
                         continue;
                     }
 
-                    if (!ignoredValue(value)) {
+                    if (!ignoredValue(value, rules)) {
                         const start = argsStartOffset + arg.offset + quoteIndexInArg;
                         const end = start + strMatch[0].length;
                         hits.push({
@@ -397,17 +530,25 @@ function getNearestNonEmptyLine(document, lineNumber, direction) {
 function isJsxBoundary(text) {
     if (!text || typeof text !== "string") return false;
     const trimmed = text.trim();
-    if (/(?<!=)>\s*$/.test(trimmed) && (/^<\/?[A-Za-z][\w.-]*(\s|>|$)/.test(trimmed) || /^<>/.test(trimmed))) {
+    // Closing angle bracket of an opening JSX tag (e.g. `<h3 className="...">`, `<Button`, `>`)
+    if (/(?<![=\->])>\s*$/.test(trimmed)) {
         return true;
     }
+    // Opening JSX tag on single line without closed bracket or self-closing
+    if (/^<[A-Za-z][\w.-]*/.test(trimmed)) {
+        return true;
+    }
+    // Self-closing JSX tag
     if (/\/>\s*$/.test(trimmed)) return true;
+    // Closing JSX tag e.g. `</h3>` or `</Button>`
     if (/^<\/[A-Za-z][\w.-]*>\s*$/.test(trimmed)) return true;
+    // JSX expression boundary `{` or `}`
     if (/^\{\s*$/.test(trimmed) || /^\}\s*$/.test(trimmed)) return true;
     return false;
 }
 
 /**
- * Checks if the line is inside an unclosed JSX opening tag.
+ * Checks if the line is inside an unclosed JSX opening tag (e.g. within multiline props before closing `>`).
  * @param {import("vscode").TextDocument} document
  * @param {number} lineNumber
  * @returns {boolean}
@@ -416,9 +557,18 @@ function isInsideJsxOpeningTag(document, lineNumber) {
     for (let i = lineNumber - 1; i >= 0; i--) {
         const text = document.lineAt(i).text.trim();
         if (!text) continue;
-        if (/^\/?>$/.test(text)) return false;
-        if (/^<\/[A-Za-z][\w.-]*/.test(text)) return false;
-        if (/^<[A-Za-z][\w.-]*(\s|$)/.test(text)) return true;
+        // If line ends with `>` (and is not an arrow `=>` or comparison), we reached the end of the opening tag
+        if (/(?<![=\->])>\s*$/.test(text) || /\/>\s*$/.test(text)) {
+            return false;
+        }
+        // If line is a closing tag e.g. `</div>`, we are outside opening tag
+        if (/^<\/[A-Za-z][\w.-]*/.test(text)) {
+            return false;
+        }
+        // If line starts an opening tag and does NOT end with `>`, we are inside its props
+        if (/^<[A-Za-z][\w.-]*(\s|$)/.test(text) && !/(?<![=\->])>\s*$/.test(text)) {
+            return true;
+        }
     }
 
     return false;
@@ -428,16 +578,18 @@ function isInsideJsxOpeningTag(document, lineNumber) {
  * Detects hardcoded standalone text lines within JSX structures.
  * @param {import("vscode").TextDocument} document
  * @param {number} lineNumber
+ * @param {ReturnType<typeof getCustomRules>} [customRules]
  * @returns {{ start: number, end: number, message: string } | null}
  */
-function findStandaloneJsxTextRange(document, lineNumber) {
+function findStandaloneJsxTextRange(document, lineNumber, customRules = null) {
+    const rules = customRules || getCustomRules();
     const lineText = document.lineAt(lineNumber).text;
     const value = lineText.trim();
 
     if (
         !value ||
         !/[A-Za-z]/.test(value) ||
-        ignoredValue(value) ||
+        ignoredValue(value, rules) ||
         /(?:^|\W)(?:i18n\.)?t\s*\(/.test(value) ||
         // Ignore lines with code keywords
         /^(import|export|const|let|var|return|if|else|for|while|switch|case|function|class|type|interface|throw|try|catch|finally|break|continue|default)\b/.test(value) ||
@@ -458,6 +610,12 @@ function findStandaloneJsxTextRange(document, lineNumber) {
     const next = getNearestNonEmptyLine(document, lineNumber, 1);
     if (!isJsxBoundary(previous) || !isJsxBoundary(next)) return null;
 
+    // Check if inside ignored tag e.g. <pre>, <code>
+    const prevTagMatch = previous.match(/<([A-Za-z][\w.-]*)/);
+    if (prevTagMatch && rules.ignoredTags.has(prevTagMatch[1].toLowerCase())) {
+        return null;
+    }
+
     const start = lineText.indexOf(value);
     return {
         start,
@@ -467,6 +625,9 @@ function findStandaloneJsxTextRange(document, lineNumber) {
 }
 
 module.exports = {
+    getCustomRules,
+    getCompiledPatterns,
+    escapeRegex,
     ignoredValue,
     parseFunctionArguments,
     findHardcodedRangesInLine,
