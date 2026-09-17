@@ -73,6 +73,7 @@ const DEFAULT_TAGS = [
     "Banner",
     "Alert",
     "Badge",
+    "Button",
 ];
 
 const CONFIG_SECTION = "localizationCheck";

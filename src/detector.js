@@ -133,6 +133,7 @@ function getCustomRules() {
             const customAttributes = config.get("customAttributes", []) || [];
             const customProperties = config.get("customProperties", []) || [];
             const customTags = config.get("customTags", []) || [];
+            const customWords = config.get("customWords", []) || [];
             const ignoredWordsArray = config.get("ignoredWords", []) || [];
             const ignoredAttributesArray = config.get("ignoredAttributes", []) || [];
             const ignoredPropertiesArray = config.get("ignoredProperties", []) || [];
@@ -142,6 +143,7 @@ function getCustomRules() {
                 customAttributes: Array.isArray(customAttributes) ? customAttributes : [],
                 customProperties: Array.isArray(customProperties) ? customProperties : [],
                 customTags: Array.isArray(customTags) ? customTags : [],
+                customWords: new Set(customWords.map(w => String(w).trim())),
                 ignoredWords: new Set(ignoredWordsArray.map(w => String(w).trim())),
                 ignoredAttributes: new Set(ignoredAttributesArray.map(a => String(a).trim().toLowerCase())),
                 ignoredProperties: new Set(ignoredPropertiesArray.map(p => String(p).trim().toLowerCase())),
@@ -156,6 +158,7 @@ function getCustomRules() {
         customAttributes: [],
         customProperties: [],
         customTags: [],
+        customWords: new Set(),
         ignoredWords: new Set(),
         ignoredAttributes: new Set(),
         ignoredProperties: new Set(),
@@ -217,6 +220,11 @@ function ignoredValue(value, rules = null) {
     if (!value || typeof value !== "string") return true;
     const trimmed = value.trim();
     if (trimmed.length < 2) return true;
+
+    // Never ignore if explicitly in customWords
+    if (rules && rules.customWords && (rules.customWords.has(trimmed) || rules.customWords.has(value))) {
+        return false;
+    }
 
     if (rules && rules.ignoredWords) {
         if (rules.ignoredWords.has(trimmed) || rules.ignoredWords.has(value)) {
@@ -404,6 +412,61 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
                 });
             }
         }
+    }
+
+    // Conditional / Ternary string returns in JSX or JS (e.g. `? "Submit"`, `: "Save"`, `&& "Loading..."`, `|| "Default"`, `{"Text"}`)
+    if (!/^\s*(?:import|export|require)\b/.test(trimmedLine)) {
+        const CONDITIONAL_STRING_PATTERN = /(?:(?:\?|:|\&\&|\|\|)\s*|\{\s*)(["'`])([^"'`\n]+)\1/g;
+        let condMatch;
+        while ((condMatch = CONDITIONAL_STRING_PATTERN.exec(lineText))) {
+            if (commentIndex !== -1 && condMatch.index >= commentIndex) break;
+            const value = condMatch[2].trim();
+            const quote = condMatch[1];
+            if (!value || ignoredValue(value, rules) || /(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                continue;
+            }
+
+            // Skip if preceded by equality/relational comparison operators (===, !==, ==, !=, <=, >=)
+            const prefix = lineText.slice(0, condMatch.index).trim();
+            if (/[=!<>]=\s*$/.test(prefix)) {
+                continue;
+            }
+
+            const quotedStr = quote + condMatch[2] + quote;
+            const quoteStart = condMatch.index + condMatch[0].lastIndexOf(quotedStr);
+            const start = quoteStart !== -1 ? quoteStart : condMatch.index;
+            const end = start + quotedStr.length;
+
+            if (!hits.some(h => (start >= h.start && start < h.end) || (end > h.start && end <= h.end))) {
+                hits.push({
+                    start,
+                    end,
+                    message: `Hardcoded string: "${value}". Use t("...") instead.`,
+                });
+            }
+        }
+    }
+
+    // Explicit custom words matching
+    if (rules.customWords && rules.customWords.size > 0) {
+        rules.customWords.forEach(word => {
+            if (!word) return;
+            const escaped = escapeRegex(word);
+            const wordRegex = new RegExp("([\"'`])(" + escaped + ")\\1", "g");
+            let wMatch;
+            while ((wMatch = wordRegex.exec(lineText))) {
+                if (commentIndex !== -1 && wMatch.index >= commentIndex) break;
+                const start = wMatch.index;
+                const end = start + wMatch[0].length;
+                if (!hits.some(h => (start >= h.start && start < h.end) || (end > h.start && end <= h.end))) {
+                    hits.push({
+                        start,
+                        end,
+                        message: `Hardcoded text: "${word}". Use t("...") instead.`,
+                    });
+                }
+            }
+        });
     }
 
     return hits;

@@ -142,12 +142,26 @@ async function appendToConfigArray(settingKey, newItem) {
 function inspectCodeContext(document, rangeOrPos) {
     const pos = rangeOrPos instanceof vscode.Position
         ? rangeOrPos
-        : rangeOrPos.start;
+        : (rangeOrPos ? rangeOrPos.start : new vscode.Position(0, 0));
 
     const lineText = document.lineAt(pos.line).text;
-    const selectedText = document.getText(
-        rangeOrPos instanceof vscode.Range ? rangeOrPos : undefined,
-    ).trim();
+    let selectedText = (rangeOrPos instanceof vscode.Range && !rangeOrPos.isEmpty)
+        ? document.getText(rangeOrPos).trim()
+        : "";
+
+    // If selection is empty, check for a string under cursor
+    if (!selectedText) {
+        const quoteRegex = /(["'`])([^"'`]+)\1/g;
+        let qm;
+        while ((qm = quoteRegex.exec(lineText))) {
+            const start = qm.index;
+            const end = start + qm[0].length;
+            if (pos.character >= start && pos.character <= end) {
+                selectedText = qm[2].trim();
+                break;
+            }
+        }
+    }
 
     // Inspect JSX Tag
     let tag = null;
@@ -156,7 +170,7 @@ function inspectCodeContext(document, rangeOrPos) {
         tag = tagMatch[1];
     } else {
         // Look up previous lines for unclosed tag
-        for (let i = pos.line - 1; i >= Math.max(0, pos.line - 10); i--) {
+        for (let i = pos.line - 1; i >= Math.max(0, pos.line - 15); i--) {
             const prevText = document.lineAt(i).text.trim();
             const prevTagMatch = prevText.match(/<([A-Za-z][\w.-]*)/);
             if (prevTagMatch) {
@@ -209,6 +223,16 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
 
     const options = [];
 
+    if (contextInfo.selectedText) {
+        options.push({
+            label: `🏷️ Flag Exact Text / String: "${contextInfo.selectedText}"`,
+            description: `Flag occurrences of "${contextInfo.selectedText}" as hardcoded across your project`,
+            type: "customWords",
+            value: contextInfo.selectedText,
+            typeName: "Exact String / Word",
+        });
+    }
+
     if (contextInfo.tag) {
         options.push({
             label: `🏷️ Flag Tag: <${contextInfo.tag}>`,
@@ -260,6 +284,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
     if (targetSetting === "custom") {
         const inputType = await vscode.window.showQuickPick(
             [
+                { label: "Exact Word / String", value: "customWords" },
                 { label: "Attribute", value: "customAttributes" },
                 { label: "JSX/HTML Tag", value: "customTags" },
                 { label: "Object Property", value: "customProperties" },
@@ -282,21 +307,21 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
     // 1. Save rule to settings
     await appendToConfigArray(targetSetting, targetValue);
 
-    // 2. Immediately re-scan all open documents
-    scanAllOpenDocuments(diagnostics);
+    // 2. Immediately force re-scan all open documents
+    scanAllOpenDocuments(diagnostics, true);
 
     vscode.window.showInformationMessage(
         `✅ Flagged "${targetValue}" as hardcoded (${typeName}). Re-scanned files!`,
     );
 
-    // 3. Create GitHub issue in background
-    await submitRuleToGitHub({
+    // 3. Create GitHub issue in background asynchronously (non-blocking)
+    submitRuleToGitHub({
         actionType: "flag-hardcoded",
         typeName,
         identifier: targetValue,
         snippet: contextInfo.lineText,
         languageId: document.languageId,
-    });
+    }).catch(() => {});
 }
 
 /**
@@ -403,21 +428,21 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
     // 1. Save rule to settings
     await appendToConfigArray(targetSetting, targetValue);
 
-    // 2. Immediately re-scan all open documents
-    scanAllOpenDocuments(diagnostics);
+    // 2. Immediately force re-scan all open documents
+    scanAllOpenDocuments(diagnostics, true);
 
     vscode.window.showInformationMessage(
         `🛡️ Ignored "${targetValue}" (${typeName}). False positive cleared!`,
     );
 
-    // 3. Create GitHub issue in background
-    await submitRuleToGitHub({
+    // 3. Create GitHub issue in background asynchronously (non-blocking)
+    submitRuleToGitHub({
         actionType: "false-positive",
         typeName,
         identifier: targetValue,
         snippet: contextInfo.lineText,
         languageId: document.languageId,
-    });
+    }).catch(() => {});
 }
 
 /**

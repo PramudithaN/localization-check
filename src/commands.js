@@ -47,7 +47,7 @@ function runFullCheck(outputChannel) {
 function scanCurrentFile(diagnostics) {
     const editor = vscode.window.activeTextEditor;
     if (editor) {
-        scanDocument(editor.document, diagnostics);
+        scanDocument(editor.document, diagnostics, true);
     }
 }
 

@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -165,6 +165,12 @@
           "items": { "type": "string" },
           "default": [],
           "description": "Additional object property names that should be flagged as hardcoded strings (e.g. ['subTitle', 'heading', 'bannerText'])."
+        },
+        "localizationCheck.customWords": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Specific words, phrases, or string literals to explicitly flag as hardcoded across the workspace (e.g. ['Submit', 'Update', 'Save'])."
         },
         "localizationCheck.customTags": {
           "type": "array",

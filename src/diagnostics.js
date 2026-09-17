@@ -25,8 +25,9 @@ function getDiagnosticSeverity() {
  * Scans a text document for hardcoded strings and updates the DiagnosticCollection.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").DiagnosticCollection} diagnostics
+ * @param {boolean} [force]
  */
-function scanDocument(document, diagnostics) {
+function scanDocument(document, diagnostics, force = false) {
     if (!RELEVANT_LANGUAGES.has(document.languageId)) return;
 
     const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
@@ -35,7 +36,7 @@ function scanDocument(document, diagnostics) {
         return;
     }
 
-    if (config.get("liveScanOnlyChangedFiles", true) && !isDocumentChanged(document)) {
+    if (!force && config.get("liveScanOnlyChangedFiles", true) && !isDocumentChanged(document)) {
         diagnostics.delete(document.uri);
         return;
     }
@@ -83,9 +84,10 @@ function scanDocument(document, diagnostics) {
 /**
  * Scans all open text documents.
  * @param {import("vscode").DiagnosticCollection} diagnostics
+ * @param {boolean} [force]
  */
-function scanAllOpenDocuments(diagnostics) {
-    vscode.workspace.textDocuments.forEach(doc => scanDocument(doc, diagnostics));
+function scanAllOpenDocuments(diagnostics, force = false) {
+    vscode.workspace.textDocuments.forEach(doc => scanDocument(doc, diagnostics, force));
 }
 
 module.exports = {
