@@ -16,11 +16,14 @@
 - Multiline and single-line notification function checks (e.g. `showNotification`).
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.
+- **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix (💡) or interactive CodeLens buttons.
 
 ## Commands
 
 - **Localization: Run Full Check (git staged)**: executes the project's localization check script on git-staged changes and displays results in the output panel.
 - **Localization: Re-scan Current File**: manually scans the active file again.
+- **Localization: Add Localization with Copilot**: sends the selected or underlined hardcoded string to GitHub Copilot's Language Model and automatically replaces it with the appropriate localized expression (e.g. `t('...')` or `formatMessage(...)`).
+- **Localization: Localize All in Current File with Copilot**: sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document at once.
 
 ## Configuration
 
@@ -32,7 +35,9 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
   "localizationCheck.liveScan": true,
   "localizationCheck.diagnosticSeverity": "error",
   "localizationCheck.liveScanOnlyChangedFiles": true,
-  "localizationCheck.warnOnStage": true
+  "localizationCheck.warnOnStage": true,
+  "localizationCheck.enableCodeLens": true,
+  "localizationCheck.copilotPromptHint": ""
 }
 ```
 
@@ -43,6 +48,8 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
 - `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
 - `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
+- `localizationCheck.enableCodeLens`: displays clickable `Add localization with Copilot` CodeLens buttons above detected hardcoded strings. Default: `true`.
+- `localizationCheck.copilotPromptHint`: optional custom instructions passed to Copilot (e.g. `"Use react-intl formatMessage"` or `"Use i18next"`). Default: `""`.
 
 ## Try It Locally
 
@@ -83,7 +90,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.1.8.vsix
+code --install-extension localization-check-0.2.0.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
@@ -95,7 +102,9 @@ This extension has no runtime npm dependencies. The codebase is organized modula
 - `extension.js`: Main entry point and activation lifecycle handler.
 - `src/constants.js`: Shared regex patterns, configuration keys, and language targets.
 - `src/detector.js`: Detection rules for attributes, JSX text, and object properties.
+- `src/copilot.js`: Direct GitHub Copilot Language Model integration and workspace edit handler.
+- `src/providers.js`: CodeAction (Quick Fix) and CodeLens providers.
 - `src/git.js`: Git extension integration and change detection watchers.
 - `src/diagnostics.js`: Diagnostics collection and severity mapping.
-- `src/commands.js`: Command handlers for manual and workspace checks.
+- `src/commands.js`: Command handlers for manual, workspace checks, and Copilot localization.
 - `package.json`: Extension manifest and configuration contribution settings.

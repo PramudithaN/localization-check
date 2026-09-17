@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -27,12 +27,43 @@
       {
         "command": "localizationCheck.scanFile",
         "title": "Localization: Re-scan Current File"
+      },
+      {
+        "command": "localizationCheck.localizeWithCopilot",
+        "title": "Localization: Add Localization with Copilot",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "localizationCheck.localizeAllInFile",
+        "title": "Localization: Localize All in Current File with Copilot",
+        "icon": "$(sparkle)"
       }
     ],
     "menus": {
       "commandPalette": [
         { "command": "localizationCheck.run" },
-        { "command": "localizationCheck.scanFile" }
+        { "command": "localizationCheck.scanFile" },
+        { "command": "localizationCheck.localizeWithCopilot" },
+        { "command": "localizationCheck.localizeAllInFile" }
+      ],
+      "editor/title": [
+        {
+          "command": "localizationCheck.localizeAllInFile",
+          "group": "navigation",
+          "when": "editorLangId =~ /javascript|javascriptreact|typescript|typescriptreact/"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "localizationCheck.localizeWithCopilot",
+          "group": "1_modification",
+          "when": "editorTextFocus"
+        },
+        {
+          "command": "localizationCheck.localizeAllInFile",
+          "group": "1_modification",
+          "when": "editorTextFocus"
+        }
       ]
     },
     "configuration": {
@@ -63,6 +94,16 @@
           "type": "boolean",
           "default": true,
           "description": "Show a warning notification when files staged for commit contain hardcoded text that isn't localized. Requires the optional scriptPath script to exist in the scanned project."
+        },
+        "localizationCheck.enableCodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display clickable 'Add localization with Copilot' CodeLens buttons directly above lines containing hardcoded text."
+        },
+        "localizationCheck.copilotPromptHint": {
+          "type": "string",
+          "default": "",
+          "description": "Optional custom prompt instructions passed to Copilot when generating localization replacements (e.g., 'Use react-intl formatMessage' or 'Use i18n t()')."
         }
       }
     }

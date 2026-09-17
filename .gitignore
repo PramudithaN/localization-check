@@ -3,3 +3,5 @@
 AGENTS.md
 GEMINI.md
 templates/
+*.vsix
+node_modules/
