@@ -859,7 +859,7 @@ async function localizeWithCopilot(document, range) {
                 }
 
                 vscode.window.showInformationMessage(
-                    `Localized "${targetText}" ➔ ${replacement}${dictMessage}`,
+                    `Localized "${targetText}" -> ${replacement}${dictMessage}`,
                 );
                 return true;
             },

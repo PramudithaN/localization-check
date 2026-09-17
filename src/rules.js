@@ -5,7 +5,7 @@ const {
     DEFAULT_GITHUB_REPO,
     SOURCE_NAME,
 } = require("./constants");
-const { scanAllOpenDocuments } = require("./diagnostics");
+const { scanAllOpenDocuments, scanDocument } = require("./diagnostics");
 
 /**
  * Creates a GitHub issue via the GitHub REST API using the user's authentication token.
@@ -120,8 +120,18 @@ async function appendToConfigArray(settingKey, newItem) {
             ? vscode.ConfigurationTarget.Workspace
             : vscode.ConfigurationTarget.Global;
 
-        await config.update(settingKey, list, target);
-        return true;
+        try {
+            await config.update(settingKey, list, target);
+            return true;
+        } catch (err) {
+            // If VS Code schema is not refreshed yet, try updating globally or notify user
+            try {
+                await config.update(settingKey, list, vscode.ConfigurationTarget.Global);
+                return true;
+            } catch {
+                // Ignore schema registration error if setting was written
+            }
+        }
     }
 
     return false;
@@ -225,7 +235,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
 
     if (contextInfo.selectedText) {
         options.push({
-            label: `🏷️ Flag Exact Text / String: "${contextInfo.selectedText}"`,
+            label: `$(tag) Flag Exact Text / String: "${contextInfo.selectedText}"`,
             description: `Flag occurrences of "${contextInfo.selectedText}" as hardcoded across your project`,
             type: "customWords",
             value: contextInfo.selectedText,
@@ -235,7 +245,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
 
     if (contextInfo.tag) {
         options.push({
-            label: `🏷️ Flag Tag: <${contextInfo.tag}>`,
+            label: `$(tag) Flag Tag: <${contextInfo.tag}>`,
             description: `Flag all text inside <${contextInfo.tag}> elements as hardcoded`,
             type: "customTags",
             value: contextInfo.tag,
@@ -245,7 +255,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
 
     if (contextInfo.attribute) {
         options.push({
-            label: `🏷️ Flag Attribute: ${contextInfo.attribute}="..."`,
+            label: `$(tag) Flag Attribute: ${contextInfo.attribute}="..."`,
             description: `Flag all string values in ${contextInfo.attribute} attributes`,
             type: "customAttributes",
             value: contextInfo.attribute,
@@ -255,7 +265,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
 
     if (contextInfo.property) {
         options.push({
-            label: `🏷️ Flag Property: ${contextInfo.property}: "..."`,
+            label: `$(tag) Flag Property: ${contextInfo.property}: "..."`,
             description: `Flag all string values in ${contextInfo.property} object properties`,
             type: "customProperties",
             value: contextInfo.property,
@@ -264,7 +274,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
     }
 
     options.push({
-        label: "✏️ Custom Identifier...",
+        label: "$(edit) Custom Identifier...",
         description: "Enter a custom attribute, tag, or property name to flag",
         type: "custom",
         value: null,
@@ -307,11 +317,12 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
     // 1. Save rule to settings
     await appendToConfigArray(targetSetting, targetValue);
 
-    // 2. Immediately force re-scan all open documents
+    // 2. Immediately force re-scan the active document and all open documents
+    scanDocument(document, diagnostics, true);
     scanAllOpenDocuments(diagnostics, true);
 
     vscode.window.showInformationMessage(
-        `✅ Flagged "${targetValue}" as hardcoded (${typeName}). Re-scanned files!`,
+        `$(check) Flagged "${targetValue}" as hardcoded (${typeName}). Re-scanned files!`,
     );
 
     // 3. Create GitHub issue in background asynchronously (non-blocking)
@@ -346,7 +357,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
 
     if (contextInfo.selectedText) {
         options.push({
-            label: `🛡️ Ignore Exact String: "${contextInfo.selectedText}"`,
+            label: `$(shield) Ignore Exact String: "${contextInfo.selectedText}"`,
             description: "Never flag this specific word/phrase again",
             type: "ignoredWords",
             value: contextInfo.selectedText,
@@ -356,7 +367,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
 
     if (contextInfo.attribute) {
         options.push({
-            label: `🛡️ Ignore Attribute: ${contextInfo.attribute}="..."`,
+            label: `$(shield) Ignore Attribute: ${contextInfo.attribute}="..."`,
             description: `Ignore all values inside ${contextInfo.attribute} attributes`,
             type: "ignoredAttributes",
             value: contextInfo.attribute,
@@ -366,7 +377,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
 
     if (contextInfo.property) {
         options.push({
-            label: `🛡️ Ignore Object Property: ${contextInfo.property}: "..."`,
+            label: `$(shield) Ignore Object Property: ${contextInfo.property}: "..."`,
             description: `Ignore all values in ${contextInfo.property} object properties`,
             type: "ignoredProperties",
             value: contextInfo.property,
@@ -376,7 +387,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
 
     if (contextInfo.tag) {
         options.push({
-            label: `🛡️ Ignore Tag: <${contextInfo.tag}>`,
+            label: `$(shield) Ignore Tag: <${contextInfo.tag}>`,
             description: `Ignore text inside <${contextInfo.tag}> elements`,
             type: "ignoredTags",
             value: contextInfo.tag,
@@ -385,7 +396,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
     }
 
     options.push({
-        label: "✏️ Custom Word or Identifier to Ignore...",
+        label: "$(edit) Custom Word or Identifier to Ignore...",
         description: "Enter a custom word, attribute, or property to ignore",
         type: "custom",
         value: null,
@@ -428,11 +439,12 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
     // 1. Save rule to settings
     await appendToConfigArray(targetSetting, targetValue);
 
-    // 2. Immediately force re-scan all open documents
+    // 2. Immediately force re-scan the active document and all open documents
+    scanDocument(document, diagnostics, true);
     scanAllOpenDocuments(diagnostics, true);
 
     vscode.window.showInformationMessage(
-        `🛡️ Ignored "${targetValue}" (${typeName}). False positive cleared!`,
+        `$(shield) Ignored "${targetValue}" (${typeName}). False positive cleared!`,
     );
 
     // 3. Create GitHub issue in background asynchronously (non-blocking)
@@ -468,7 +480,7 @@ async function submitRuleToGitHub(info) {
         ? ["rule-suggestion", "hardcoded-text"]
         : ["false-positive", "rule-exception"];
 
-    const body = `### ${isFlag ? "🏷️ Rule Suggestion: Flag Hardcoded Text" : "🛡️ False Positive Report"}
+    const body = `### ${isFlag ? "Rule Suggestion: Flag Hardcoded Text" : "False Positive Report"}
 
 - **Type**: ${info.typeName}
 - **Identifier / Value**: \`${info.identifier}\`
@@ -493,7 +505,7 @@ ${info.snippet || info.identifier}
             const viewAction = "View Issue";
             vscode.window
                 .showInformationMessage(
-                    `🚀 GitHub issue #${result.number} created in ${repo}!`,
+                    `$(github) GitHub issue #${result.number} created in ${repo}!`,
                     viewAction,
                 )
                 .then(choice => {

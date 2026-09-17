@@ -318,6 +318,41 @@ function getCommentIndexInLine(lineText) {
 }
 
 /**
+ * Determines if a colon at the given index in lineText is part of a ternary operator.
+ * Returns false if it is an object property key separator, TS type annotation, or switch case.
+ * @param {string} lineText
+ * @param {number} colonIndex
+ * @returns {boolean}
+ */
+function isTernaryColon(lineText, colonIndex) {
+    const prefix = lineText.slice(0, colonIndex).trim();
+    if (!prefix) {
+        // Line starts with `:` -> multiline ternary else branch
+        return true;
+    }
+
+    // If there is no `?` before this colon on the line, it is not a single-line ternary
+    const qIndex = prefix.indexOf("?");
+    if (qIndex === -1) {
+        return false;
+    }
+
+    // If there is an unclosed `{` after the `?`, the colon is inside an object literal
+    const textAfterQuestion = prefix.slice(qIndex + 1);
+    let openBraces = 0;
+    for (let i = 0; i < textAfterQuestion.length; i++) {
+        if (textAfterQuestion[i] === "{") openBraces++;
+        else if (textAfterQuestion[i] === "}") openBraces--;
+    }
+
+    if (openBraces > 0) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
  * Finds hardcoded ranges in a single line of text matching attributes, JSX text, and object properties.
  * @param {string} lineText
  * @param {ReturnType<typeof getCustomRules>} [customRules]
@@ -414,21 +449,28 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
         }
     }
 
-    // Conditional / Ternary string returns in JSX or JS (e.g. `? "Submit"`, `: "Save"`, `&& "Loading..."`, `|| "Default"`, `{"Text"}`)
+    // Conditional / Ternary string returns in JSX or JS (e.g. `? "Submit"`, `: "Save"`, `&& "Loading..."`, `|| "Default"`, `?? "Fallback"`, `{"Text"}`)
     if (!/^\s*(?:import|export|require)\b/.test(trimmedLine)) {
-        const CONDITIONAL_STRING_PATTERN = /(?:(?:\?|:|\&\&|\|\|)\s*|\{\s*)(["'`])([^"'`\n]+)\1/g;
+        const CONDITIONAL_STRING_PATTERN = /(?:(?:\?|\&\&|\|\||\?\?|:)\s*|\{\s*)(["'`])([^"'`\n]+)\1/g;
         let condMatch;
         while ((condMatch = CONDITIONAL_STRING_PATTERN.exec(lineText))) {
             if (commentIndex !== -1 && condMatch.index >= commentIndex) break;
+
+            const matchedOperator = condMatch[0].trim();
+            // If the matched operator is ':', verify it is actually a ternary branch and not an object property/type annotation
+            if (matchedOperator.startsWith(":") && !isTernaryColon(lineText, condMatch.index)) {
+                continue;
+            }
+
             const value = condMatch[2].trim();
             const quote = condMatch[1];
             if (!value || ignoredValue(value, rules) || /(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
                 continue;
             }
 
-            // Skip if preceded by equality/relational comparison operators (===, !==, ==, !=, <=, >=)
+            // Skip if preceded by equality/relational comparison operators (===, !==, ==, !=, <=, >=) or switch case
             const prefix = lineText.slice(0, condMatch.index).trim();
-            if (/[=!<>]=\s*$/.test(prefix)) {
+            if (/[=!<>]=\s*$/.test(prefix) || /\bcase\s*$/.test(prefix)) {
                 continue;
             }
 

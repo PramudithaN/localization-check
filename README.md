@@ -16,7 +16,7 @@
 - Multiline and single-line notification function checks (e.g. `showNotification`).
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.
-- **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix (💡) or interactive CodeLens buttons.
+- **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix or interactive CodeLens buttons.
 - **Auto-Defines Translation Function**: Detects if `useTranslation` / `t` hook and imports are missing in the active component and inserts them automatically.
 - **Auto-Syncs Translation Dictionaries**: Discovers `en.json` (and sibling locale files like `sin.json` / `es.json`) in the workspace and automatically appends the generated key-value pairs into the dictionary.
 - **Learn & Flag Hardcoded Patterns**: One-click action to flag previously unflagged JSX tags, attributes, or object properties. Automatically updates local settings and submits an issue to GitHub to improve detection for everyone.
