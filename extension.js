@@ -11,7 +11,7 @@ const {
     handleFindUnusedKeys,
 } = require("./src/commands");
 const { LocalizationCodeActionProvider, LocalizationCodeLensProvider } = require("./src/providers");
-const { watchStagedChanges, watchChangedFiles } = require("./src/git");
+const { watchStagedChanges, watchChangedFiles, markSessionModified } = require("./src/git");
 
 /**
  * Activates the Localization Check extension.
@@ -90,7 +90,10 @@ function activate(context) {
             codeLensProvider.refresh();
         }),
         vscode.workspace.onDidSaveTextDocument(doc => {
-            scanDocument(doc, diagnostics);
+            if (doc && doc.uri) {
+                markSessionModified(doc.uri.fsPath);
+            }
+            scanDocument(doc, diagnostics, true);
             codeLensProvider.refresh();
         }),
         vscode.workspace.onDidCloseTextDocument(doc => {
@@ -103,6 +106,9 @@ function activate(context) {
     let debounceTimer;
     context.subscriptions.push(
         vscode.workspace.onDidChangeTextDocument(event => {
+            if (event.document && event.document.uri) {
+                markSessionModified(event.document.uri.fsPath);
+            }
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
                 scanDocument(event.document, diagnostics);

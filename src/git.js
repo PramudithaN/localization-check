@@ -33,6 +33,18 @@ function sameFile(left, right) {
     return path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase();
 }
 
+const sessionModifiedFiles = new Set();
+
+/**
+ * Marks a file path as modified during the active editor session.
+ * @param {string} fsPath
+ */
+function markSessionModified(fsPath) {
+    if (fsPath) {
+        sessionModifiedFiles.add(path.normalize(fsPath).toLowerCase());
+    }
+}
+
 /**
  * Determines whether a text document has unsaved or git-staged/working-tree changes.
  * @param {import("vscode").TextDocument} document
@@ -41,12 +53,16 @@ function sameFile(left, right) {
 function isDocumentChanged(document) {
     if (document.isDirty) return true;
 
+    const docPath = document.uri ? document.uri.fsPath : "";
+    if (docPath && sessionModifiedFiles.has(path.normalize(docPath).toLowerCase())) {
+        return true;
+    }
+
     const gitAPI = getGitAPI();
     if (!gitAPI || !Array.isArray(gitAPI.repositories) || gitAPI.repositories.length === 0) {
         return true;
     }
 
-    const docPath = document.uri ? document.uri.fsPath : "";
     if (!docPath) return true;
 
     return gitAPI.repositories.some(repo => {
@@ -177,6 +193,7 @@ function watchChangedFiles(context, onRepoChange) {
 module.exports = {
     getGitAPI,
     sameFile,
+    markSessionModified,
     isDocumentChanged,
     runCheckSilently,
     watchStagedChanges,

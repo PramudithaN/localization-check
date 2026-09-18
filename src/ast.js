@@ -30,7 +30,34 @@ const NOTIFICATION_FUNCTION_NAMES = new Set([
     "notify",
     "displayNotification",
     "openNotification",
+    "alert",
+    "confirm",
+    "prompt",
+    "toast",
 ]);
+
+const NOTIFICATION_OBJECT_NAMES = new Set([
+    "toast",
+    "message",
+    "notification",
+    "modal",
+    "Modal",
+]);
+
+const NOTIFICATION_METHOD_NAMES = new Set([
+    "success",
+    "error",
+    "info",
+    "warning",
+    "warn",
+    "open",
+    "show",
+    "confirm",
+    "notice",
+]);
+
+const UI_VAR_PATTERN =
+    /(?:label|title|placeholder|tooltip|buttonText|helperText|header|caption|heading|emptyText|confirmText|cancelText|okText|badgeText|message|errorMessage|errorMsg|statusText|welcomeText|infoText|warningText|alertText|dialogTitle|modalTitle|cardTitle|tabTitle|pageTitle|columnTitle|labelText|hintText|promptText|bannerText)$/i;
 
 const IGNORED_COLOR_KEYWORDS = new Set([
     "red", "green", "blue", "yellow", "orange", "purple", "pink", "black",
@@ -193,6 +220,30 @@ function getCallFunctionName(callNode) {
 }
 
 /**
+ * Helper to extract call function details from CallExpression.
+ * @param {any} callNode
+ * @returns {{ fnName: string, objName: string, isNotification: boolean }}
+ */
+function getCallDetails(callNode) {
+    if (!callNode || !callNode.callee) return { fnName: "", objName: "", isNotification: false };
+    const callee = callNode.callee;
+    if (callee.type === "Identifier") {
+        const fnName = callee.name;
+        const isNotification = NOTIFICATION_FUNCTION_NAMES.has(fnName);
+        return { fnName, objName: "", isNotification };
+    }
+    if (callee.type === "MemberExpression") {
+        const propName = callee.property && callee.property.name ? callee.property.name : "";
+        const objName = callee.object && callee.object.name ? callee.object.name : "";
+        const isNotification =
+            (NOTIFICATION_OBJECT_NAMES.has(objName) && NOTIFICATION_METHOD_NAMES.has(propName)) ||
+            NOTIFICATION_FUNCTION_NAMES.has(propName);
+        return { fnName: propName, objName, isNotification };
+    }
+    return { fnName: "", objName: "", isNotification: false };
+}
+
+/**
  * Checks if an expression is already localized via t(...) or formatMessage(...).
  * @param {any} path
  * @returns {boolean}
@@ -348,6 +399,31 @@ function findHardcodedHitsInAst(ast, rules = null) {
             }
         },
 
+        JSXExpressionContainer(path) {
+            // Direct string literal inside JSX element e.g. <div>{"Hello World"}</div>
+            if (path.parentPath && path.parentPath.isJSXElement()) {
+                const expr = path.node.expression;
+                if (expr && expr.type === "StringLiteral") {
+                    const value = expr.value.trim();
+                    if (!ignoredValue(value, rules, true) && !isInsideLocalizationCall(path)) {
+                        const loc = expr.loc;
+                        hits.push({
+                            startLine: loc.start.line - 1,
+                            startCol: loc.start.column,
+                            endLine: loc.end.line - 1,
+                            endCol: loc.end.column,
+                            startOffset: expr.start,
+                            endOffset: expr.end,
+                            value,
+                            message: `Hardcoded JSX text: "${value}". Use t("...") instead.`,
+                            confidence: "high",
+                            type: "jsx_text",
+                        });
+                    }
+                }
+            }
+        },
+
         ObjectProperty(path) {
             const keyNode = path.node.key;
             let propName = "";
@@ -385,39 +461,106 @@ function findHardcodedHitsInAst(ast, rules = null) {
             }
         },
 
-        CallExpression(path) {
-            const fnName = getCallFunctionName(path.node);
-            if (!fnName || !NOTIFICATION_FUNCTION_NAMES.has(fnName)) return;
+        VariableDeclarator(path) {
+            const idNode = path.node.id;
+            const initNode = path.node.init;
+            if (!initNode) return;
 
-            const args = path.node.arguments || [];
-            if (args.length === 0) return;
+            let varName = "";
+            let isState = false;
 
-            let startArgIndex = args.length > 1 ? 1 : 0;
-            if (startArgIndex === 0 && args.length === 1 && args[0].type === "StringLiteral") {
-                const firstVal = args[0].value.trim().toLowerCase();
-                if (NOTIFICATION_STATUS_KEYWORDS.has(firstVal)) {
-                    startArgIndex = 1;
+            if (idNode.type === "Identifier") {
+                varName = idNode.name;
+            } else if (idNode.type === "ArrayPattern" && idNode.elements.length > 0 && idNode.elements[0]) {
+                if (idNode.elements[0].type === "Identifier") {
+                    varName = idNode.elements[0].name;
+                    isState = true;
                 }
             }
 
-            for (let i = startArgIndex; i < args.length; i++) {
-                const arg = args[i];
-                if (arg.type === "StringLiteral") {
-                    const value = arg.value;
-                    if (!ignoredValue(value, rules) && !isInsideLocalizationCall(path)) {
-                        const loc = arg.loc;
+            if (!varName) return;
+            const isUiVar = UI_VAR_PATTERN.test(varName);
+
+            // Direct string assignment e.g. const title = "Dashboard Overview";
+            if (initNode.type === "StringLiteral" && isUiVar) {
+                const value = initNode.value;
+                if (!ignoredValue(value, rules, true) && !isInsideLocalizationCall(path)) {
+                    const loc = initNode.loc;
+                    hits.push({
+                        startLine: loc.start.line - 1,
+                        startCol: loc.start.column,
+                        endLine: loc.end.line - 1,
+                        endCol: loc.end.column,
+                        startOffset: initNode.start,
+                        endOffset: initNode.end,
+                        value,
+                        message: `Hardcoded value for "${varName}": "${value}". Use t("...") instead.`,
+                        confidence: "high",
+                        type: "variable",
+                    });
+                }
+            }
+
+            // useState("Loading records...")
+            if (initNode.type === "CallExpression" && isState) {
+                const calleeName = initNode.callee && initNode.callee.name ? initNode.callee.name : "";
+                if (calleeName === "useState" && initNode.arguments.length > 0 && initNode.arguments[0].type === "StringLiteral") {
+                    const argNode = initNode.arguments[0];
+                    const value = argNode.value;
+                    if (isUiVar && !ignoredValue(value, rules, true) && !isInsideLocalizationCall(path)) {
+                        const loc = argNode.loc;
                         hits.push({
                             startLine: loc.start.line - 1,
                             startCol: loc.start.column,
                             endLine: loc.end.line - 1,
                             endCol: loc.end.column,
-                            startOffset: arg.start,
-                            endOffset: arg.end,
+                            startOffset: argNode.start,
+                            endOffset: argNode.end,
                             value,
-                            message: `Hardcoded text in "${fnName}" call: "${value}". Use t("...") instead.`,
+                            message: `Hardcoded initial state for "${varName}": "${value}". Use t("...") instead.`,
                             confidence: "high",
-                            type: "notification",
+                            type: "variable",
                         });
+                    }
+                }
+            }
+        },
+
+        CallExpression(path) {
+            const { fnName, objName, isNotification } = getCallDetails(path.node);
+            const callDisplay = objName ? `${objName}.${fnName}` : fnName;
+
+            if (isNotification) {
+                const args = path.node.arguments || [];
+                if (args.length === 0) return;
+
+                let startArgIndex = 0;
+                if (args.length > 1 && args[0].type === "StringLiteral") {
+                    const firstVal = args[0].value.trim().toLowerCase();
+                    if (NOTIFICATION_STATUS_KEYWORDS.has(firstVal)) {
+                        startArgIndex = 1;
+                    }
+                }
+
+                for (let i = startArgIndex; i < args.length; i++) {
+                    const arg = args[i];
+                    if (arg.type === "StringLiteral") {
+                        const value = arg.value;
+                        if (!ignoredValue(value, rules, true) && !isInsideLocalizationCall(path)) {
+                            const loc = arg.loc;
+                            hits.push({
+                                startLine: loc.start.line - 1,
+                                startCol: loc.start.column,
+                                endLine: loc.end.line - 1,
+                                endCol: loc.end.column,
+                                startOffset: arg.start,
+                                endOffset: arg.end,
+                                value,
+                                message: `Hardcoded text in "${callDisplay}" call: "${value}". Use t("...") instead.`,
+                                confidence: "high",
+                                type: "notification",
+                            });
+                        }
                     }
                 }
             }

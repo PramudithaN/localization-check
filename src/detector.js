@@ -190,6 +190,50 @@ function findFallbackRegexHits(text, rules) {
                 }
             }
         }
+
+        // Fallback for notification / toast calls e.g. toast.error("...") or alert("...")
+        const notifMatch = /(?:\b(?:toast|message|notification)\s*\.\s*(?:success|error|info|warning|warn|open|show)|\b(?:showNotification|showToast|notify|alert|confirm|prompt))\s*\(\s*(?:["'](?:error|success|info|warning|warn|danger|loading|alert)["']\s*,\s*)?(["'])([^"']+)\1/gi.exec(lineText);
+        if (notifMatch) {
+            const value = notifMatch[2];
+            if (!ignoredValue(value, rules, true) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const startCol = notifMatch.index + notifMatch[0].lastIndexOf(value);
+                hits.push({
+                    startLine: i,
+                    startCol,
+                    endLine: i,
+                    endCol: startCol + value.length,
+                    startOffset: 0,
+                    endOffset: 0,
+                    value,
+                    message: `Hardcoded notification text: "${value}". Use t("...") instead.`,
+                    confidence: "high",
+                    type: "notification",
+                });
+            }
+        }
+
+        // Fallback for UI variable definitions e.g. const title = "Welcome";
+        const varMatch = /\b(?:const|let|var)\s+([a-zA-Z0-9_$]+)\s*=\s*(["'])([^"']+)\2/gi.exec(lineText);
+        if (varMatch) {
+            const varName = varMatch[1];
+            const value = varMatch[3];
+            const isUiVar = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message|tooltip|description|header|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText|heading|badgeText)$/i.test(varName);
+            if (isUiVar && !ignoredValue(value, rules, true) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const startCol = varMatch.index + varMatch[0].lastIndexOf(value);
+                hits.push({
+                    startLine: i,
+                    startCol,
+                    endLine: i,
+                    endCol: startCol + value.length,
+                    startOffset: 0,
+                    endOffset: 0,
+                    value,
+                    message: `Hardcoded value for "${varName}": "${value}". Use t("...") instead.`,
+                    confidence: "high",
+                    type: "variable",
+                });
+            }
+        }
     }
 
     return hits;

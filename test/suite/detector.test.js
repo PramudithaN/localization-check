@@ -274,4 +274,53 @@ export function Sample({ active }: any) {
             assert.strictEqual(ternaryHit.confidence, "low");
         });
     });
+
+    describe("JSX Expression Container & UI Variables", () => {
+        it("detects string literals inside JSX container and UI variable declarations", () => {
+            const code = `
+export function Profile() {
+    const title = "Dashboard Overview";
+    const errorMessage = "Failed to fetch data";
+    const [statusText, setStatusText] = useState("Loading records...");
+    return (
+        <div>
+            {"Hello World"}
+            <span>{title}</span>
+        </div>
+    );
+}
+`;
+            const { ast } = parseSource(code, "profile.tsx");
+            assert.ok(ast);
+
+            const hits = findHardcodedHitsInAst(ast);
+            const values = hits.map(h => h.value);
+
+            assert.ok(values.includes("Hello World"), "Should detect string in JSXExpressionContainer");
+            assert.ok(values.includes("Dashboard Overview"), "Should detect UI variable title");
+            assert.ok(values.includes("Failed to fetch data"), "Should detect UI variable errorMessage");
+            assert.ok(values.includes("Loading records..."), "Should detect useState UI initial state");
+        });
+
+        it("detects alert, confirm, toast, and message notifications", () => {
+            const code = `
+export function NotifyUser() {
+    alert("Please fill all required fields");
+    confirm("Are you sure you want to proceed?");
+    toast.error("Failed to connect to server");
+    message.success("Profile saved successfully");
+}
+`;
+            const { ast } = parseSource(code, "notify.ts");
+            assert.ok(ast);
+
+            const hits = findHardcodedHitsInAst(ast);
+            const values = hits.map(h => h.value);
+
+            assert.ok(values.includes("Please fill all required fields"), "Should detect alert");
+            assert.ok(values.includes("Are you sure you want to proceed?"), "Should detect confirm");
+            assert.ok(values.includes("Failed to connect to server"), "Should detect toast.error");
+            assert.ok(values.includes("Profile saved successfully"), "Should detect message.success");
+        });
+    });
 });
