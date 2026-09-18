@@ -212,6 +212,36 @@ function isInsideLocalizationCall(path) {
 }
 
 /**
+ * Calculates exact line/column coordinates for a trimmed substring within a multiline/single-line node.
+ * @param {any} loc
+ * @param {string} rawText
+ * @param {string} subText
+ * @returns {{ startLine: number, startCol: number, endLine: number, endCol: number }}
+ */
+function calculateSubTextLoc(loc, rawText, subText) {
+    const offset = rawText.indexOf(subText);
+    if (offset === -1 || !loc) {
+        return {
+            startLine: loc ? loc.start.line - 1 : 0,
+            startCol: loc ? loc.start.column : 0,
+            endLine: loc ? loc.end.line - 1 : 0,
+            endCol: loc ? loc.end.column : 0,
+        };
+    }
+
+    const before = rawText.slice(0, offset);
+    const beforeLines = before.split(/\r?\n/);
+    const startLine = (loc.start.line - 1) + (beforeLines.length - 1);
+    const startCol = beforeLines.length === 1 ? loc.start.column + before.length : beforeLines[beforeLines.length - 1].length;
+
+    const subLines = subText.split(/\r?\n/);
+    const endLine = startLine + (subLines.length - 1);
+    const endCol = subLines.length === 1 ? startCol + subText.length : subLines[subLines.length - 1].length;
+
+    return { startLine, startCol, endLine, endCol };
+}
+
+/**
  * Traverses an AST and detects all hardcoded strings.
  * @param {any} ast
  * @param {any} [rules]
@@ -301,19 +331,13 @@ function findHardcodedHitsInAst(ast, rules = null) {
             }
 
             if (!ignoredValue(trimmed, rules, true) && !isInsideLocalizationCall(path)) {
-                const loc = path.node.loc;
-                // Calculate precise offset for trimmed content within JSXText
-                const lineDelta = rawText.indexOf(trimmed);
-                const startLine = loc.start.line - 1;
-                const startCol = loc.start.column + (loc.start.line === loc.end.line ? lineDelta : 0);
-                const endLine = loc.end.line - 1;
-                const endCol = loc.start.line === loc.end.line ? startCol + trimmed.length : loc.end.column;
+                const subLoc = calculateSubTextLoc(path.node.loc, rawText, trimmed);
 
                 hits.push({
-                    startLine,
-                    startCol,
-                    endLine,
-                    endCol,
+                    startLine: subLoc.startLine,
+                    startCol: subLoc.startCol,
+                    endLine: subLoc.endLine,
+                    endCol: subLoc.endCol,
                     startOffset: path.node.start,
                     endOffset: path.node.end,
                     value: trimmed,

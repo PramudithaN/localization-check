@@ -1,4 +1,9 @@
-const vscode = require("vscode");
+let vscode;
+try {
+    vscode = require("vscode");
+} catch {
+    // Standalone or unit test runner
+}
 const {
     DEFAULT_ATTRIBUTES,
     DEFAULT_OBJECT_PROPERTIES,
@@ -84,7 +89,114 @@ function escapeRegex(str) {
 }
 
 /**
- * Detects hardcoded hits in full document text using AST parser.
+ * Fallback regex scanner when AST parser encounters syntax errors (e.g. while editing in-progress code).
+ * @param {string} text
+ * @param {ReturnType<typeof getCustomRules>} rules
+ * @returns {Array<any>}
+ */
+function findFallbackRegexHits(text, rules) {
+    const hits = [];
+    const lines = text.split(/\r?\n/);
+    const attrs = Array.from(
+        new Set([...DEFAULT_ATTRIBUTES, ...rules.customAttributes])
+    ).filter(attr => !rules.ignoredAttributes.has(attr.toLowerCase()));
+
+    const attrPattern = attrs.length > 0
+        ? new RegExp(`\\b(${attrs.map(escapeRegex).join("|")})\\s*=\\s*(["'])([^"']+)\\2`, "gi")
+        : null;
+
+    const props = Array.from(
+        new Set([...DEFAULT_OBJECT_PROPERTIES, ...rules.customProperties])
+    ).filter(prop => !rules.ignoredProperties.has(prop.toLowerCase()));
+
+    const propPattern = props.length > 0
+        ? new RegExp("\\b(" + props.map(escapeRegex).join("|") + ")\\s*:\\s*([\"'`])([^\"'`]+)\\2", "gi")
+        : null;
+
+    const textPattern = /(?<![=\->])>\s*([A-Za-z][^<{]*?[A-Za-z0-9!?.,])\s*<\s*(?:\/|[A-Za-z][\w.-]*|\s*>|\s*$|\{)/g;
+
+    for (let i = 0; i < lines.length; i++) {
+        const lineText = lines[i];
+        const trimmed = lineText.trim();
+        if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) continue;
+
+        if (attrPattern) {
+            attrPattern.lastIndex = 0;
+            let match;
+            while ((match = attrPattern.exec(lineText))) {
+                const attrName = match[1];
+                const value = match[3];
+                const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption)$/i.test(attrName);
+                if (!ignoredValue(value, rules, isLabel) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                    const startCol = match.index + match[0].lastIndexOf(value);
+                    hits.push({
+                        startLine: i,
+                        startCol,
+                        endLine: i,
+                        endCol: startCol + value.length,
+                        startOffset: 0,
+                        endOffset: 0,
+                        value,
+                        message: `Hardcoded text in "${attrName}" attribute: "${value}". Use t("...") instead.`,
+                        confidence: isLabel ? "high" : "medium",
+                        type: "attribute",
+                    });
+                }
+            }
+        }
+
+        textPattern.lastIndex = 0;
+        let tMatch;
+        while ((tMatch = textPattern.exec(lineText))) {
+            const value = tMatch[1].trim();
+            if (!ignoredValue(value, rules, true) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const startCol = tMatch.index + tMatch[0].indexOf(tMatch[1]);
+                hits.push({
+                    startLine: i,
+                    startCol,
+                    endLine: i,
+                    endCol: startCol + tMatch[1].length,
+                    startOffset: 0,
+                    endOffset: 0,
+                    value,
+                    message: `Hardcoded JSX text: "${value}". Use t("...") instead.`,
+                    confidence: "high",
+                    type: "jsx_text",
+                });
+            }
+        }
+
+        if (propPattern) {
+            propPattern.lastIndex = 0;
+            let pMatch;
+            while ((pMatch = propPattern.exec(lineText))) {
+                const propName = pMatch[1];
+                const value = pMatch[3];
+                const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message)$/i.test(propName);
+                if (!ignoredValue(value, rules, isLabelProp) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                    const startCol = pMatch.index + pMatch[0].lastIndexOf(value);
+                    hits.push({
+                        startLine: i,
+                        startCol,
+                        endLine: i,
+                        endCol: startCol + value.length,
+                        startOffset: 0,
+                        endOffset: 0,
+                        value,
+                        message: `Hardcoded value for "${propName}": "${value}". Use t("...") instead.`,
+                        confidence: isLabelProp ? "high" : "medium",
+                        type: "property",
+                    });
+                }
+            }
+        }
+    }
+
+    return hits;
+}
+
+/**
+ * Detects hardcoded hits in full document text using AST parser with fallback.
  * @param {string} text
  * @param {string} [filename]
  * @param {ReturnType<typeof getCustomRules>} [customRules]
@@ -107,7 +219,7 @@ function findHardcodedHits(text, filename = "document.tsx", customRules = null) 
 
     const { ast, error } = parseSource(text, filename);
     if (!ast) {
-        return [];
+        return findFallbackRegexHits(text, rules);
     }
 
     return findHardcodedHitsInAst(ast, rules);

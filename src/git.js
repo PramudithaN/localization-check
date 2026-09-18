@@ -42,15 +42,24 @@ function isDocumentChanged(document) {
     if (document.isDirty) return true;
 
     const gitAPI = getGitAPI();
-    if (!gitAPI) return false;
+    if (!gitAPI || !Array.isArray(gitAPI.repositories) || gitAPI.repositories.length === 0) {
+        return true;
+    }
+
+    const docPath = document.uri ? document.uri.fsPath : "";
+    if (!docPath) return true;
 
     return gitAPI.repositories.some(repo => {
+        if (!repo || !repo.state) return false;
+
         const changes = [
-            ...repo.state.workingTreeChanges,
-            ...repo.state.indexChanges,
+            ...(repo.state.workingTreeChanges || []),
+            ...(repo.state.indexChanges || []),
+            ...(repo.state.untrackedChanges || []),
+            ...(repo.state.mergeChanges || []),
         ];
 
-        return changes.some(change => sameFile(change.uri.fsPath, document.uri.fsPath));
+        return changes.some(change => change && change.uri && sameFile(change.uri.fsPath, docPath));
     });
 }
 
