@@ -267,6 +267,92 @@ function isFileMissingImport(fileContent, importStatement) {
 }
 
 /**
+ * Accurately finds the line index where a new import statement should be inserted.
+ * Ensures the import is placed AFTER all existing imports (including multiline imports),
+ * and after directives like "use client" / "use strict".
+ * @param {import("vscode").TextDocument} document
+ * @returns {number} Line number (0-indexed) where the new import should be inserted.
+ */
+function findImportInsertionLine(document) {
+    let lastImportEndLine = -1;
+    let directiveEndLine = -1;
+    let inMultilineImport = false;
+    let inBlockComment = false;
+
+    for (let i = 0; i < document.lineCount; i++) {
+        const rawLine = document.lineAt(i).text;
+        const trimmed = rawLine.trim();
+
+        // Handle block comments /* ... */
+        if (inBlockComment) {
+            if (trimmed.includes("*/")) {
+                inBlockComment = false;
+            }
+            continue;
+        }
+        if (trimmed.startsWith("/*")) {
+            if (!trimmed.includes("*/")) {
+                inBlockComment = true;
+            }
+            continue;
+        }
+
+        // Directives: "use client" / "use strict"
+        if (/^['"]use (?:client|strict)['"]/.test(trimmed)) {
+            directiveEndLine = i;
+            continue;
+        }
+
+        // If currently within a multiline import
+        if (inMultilineImport) {
+            // Multiline import terminates at `from "..."`, `from '...'`, or a semicolon `;`
+            if (
+                /from\s+['"][^'"]+['"]/.test(trimmed) ||
+                /['"][^'"]+['"]\s*;?$/.test(trimmed) ||
+                trimmed.endsWith(";")
+            ) {
+                inMultilineImport = false;
+                lastImportEndLine = i;
+            }
+            continue;
+        }
+
+        // Check if line starts an import or require statement
+        if (/^import\b/.test(trimmed) || /^const\s+.*=\s*require\(/.test(trimmed)) {
+            const isSingleLineImport =
+                /from\s+['"][^'"]+['"]/.test(trimmed) ||
+                /^import\s+['"][^'"]+['"]/.test(trimmed) ||
+                trimmed.endsWith(";") ||
+                /^const\s+.*=\s*require\(/.test(trimmed);
+
+            if (isSingleLineImport) {
+                lastImportEndLine = i;
+            } else {
+                inMultilineImport = true;
+            }
+        }
+    }
+
+    if (lastImportEndLine !== -1) {
+        return lastImportEndLine + 1;
+    }
+
+    if (directiveEndLine !== -1) {
+        return directiveEndLine + 1;
+    }
+
+    for (let i = 0; i < document.lineCount; i++) {
+        const trimmed = document.lineAt(i).text.trim();
+        if (trimmed.startsWith("//") || trimmed.startsWith("/*") || trimmed.startsWith("*")) {
+            continue;
+        }
+        return i;
+    }
+
+    return 0;
+}
+
+/**
  * Injects missing import statement into the document via WorkspaceEdit.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").WorkspaceEdit} edit
@@ -280,31 +366,7 @@ function injectImportStatement(document, edit, importStatement) {
         return;
     }
 
-    // Find the right insertion line
-    let insertLine = 0;
-    let foundImport = false;
-
-    for (let i = 0; i < document.lineCount; i++) {
-        const lineText = document.lineAt(i).text.trim();
-
-        // If line has "use client" or "use strict", import must go after it
-        if (/^['"]use (?:client|strict)['"]/.test(lineText)) {
-            insertLine = i + 1;
-            continue;
-        }
-
-        if (
-            lineText.startsWith("import ") ||
-            lineText.startsWith("import{") ||
-            /^import\s*\(/.test(lineText)
-        ) {
-            insertLine = i + 1;
-            foundImport = true;
-        } else if (foundImport && lineText.length === 0) {
-            continue;
-        }
-    }
-
+    const insertLine = findImportInsertionLine(document);
     const insertPos = new vscode.Position(insertLine, 0);
     const textToInsert = importStatement.trim() + "\n";
     edit.insert(document.uri, insertPos, textToInsert);
@@ -313,7 +375,7 @@ function injectImportStatement(document, edit, importStatement) {
 /**
  * Scans top-level and nested components/functions in the document to find the one enclosing targetLine.
  * Ensures hooks are ONLY injected inside valid React Functional Components or Custom Hooks,
- * never inside plain constants, object literals, array literals, or module scope.
+ * never inside plain constants, object literals, array literals, schemas, or module scope.
  * @param {import("vscode").TextDocument} document
  * @param {number} targetLine
  * @returns {{ headerLine: number, bodyOpenLine: number, indent: string, hasT: boolean } | null}
@@ -329,7 +391,8 @@ function findEnclosingComponent(document, targetLine) {
             trimmed.startsWith("//") ||
             trimmed.startsWith("/*") ||
             trimmed.startsWith("*") ||
-            trimmed.startsWith("import ")
+            trimmed.startsWith("import ") ||
+            trimmed.startsWith("import{")
         ) {
             continue;
         }
@@ -367,18 +430,27 @@ function findEnclosingComponent(document, targetLine) {
                 /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
 
             if (isPascalOrHook) {
-                // Check if this declaration defines a component or function across one or multiple lines
+                // Check if this declaration defines a FUNCTION or COMPONENT (MUST contain =>, function, forwardRef, or memo)
                 let isComponentDef = false;
+                let declarationText = "";
                 for (let j = i; j < Math.min(document.lineCount, i + 10); j++) {
                     const checkLine = document.lineAt(j).text;
+                    declarationText += " " + checkLine;
                     if (
-                        /=>/.test(checkLine) ||
-                        /\bfunction\b/.test(checkLine) ||
-                        /\b(?:React\.)?(?:memo|forwardRef)\b/.test(checkLine) ||
-                        /\bReact\.FC\b/.test(checkLine) ||
-                        /\bFC\b/.test(checkLine)
+                        /=>/.test(declarationText) ||
+                        /\bfunction\s*\(/.test(declarationText) ||
+                        /\b(?:React\.)?(?:memo|forwardRef)\s*\(/.test(declarationText)
                     ) {
                         isComponentDef = true;
+                        break;
+                    }
+                    // Stop if we hit an object literal assignment `= {` or array `= [` without an arrow or function
+                    if (
+                        /=\s*\{/.test(declarationText) ||
+                        /=\s*\[/.test(declarationText) ||
+                        /=\s*new\b/.test(declarationText)
+                    ) {
+                        isComponentDef = false;
                         break;
                     }
                     if (j > i && /^[A-Za-z0-9_$]/.test(checkLine.trim()) && checkLine.includes("=")) {
@@ -399,21 +471,6 @@ function findEnclosingComponent(document, targetLine) {
         }
     }
 
-    // Fallback: If targetLine wasn't found by top candidates, search upwards from targetLine for enclosing function/component
-    if (candidateComponents.length === 0 || !candidateComponents.some(c => c.startLine <= targetLine)) {
-        for (let i = targetLine; i >= Math.max(0, targetLine - 80); i--) {
-            const line = document.lineAt(i).text.trim();
-            if (
-                /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Z][A-Za-z0-9_$]*|use[A-Z][A-Za-z0-9_$]*)/.test(line) ||
-                /^(?:export\s+)?(?:default\s+)?function(?:\s+([A-Z][A-Za-z0-9_$]*|use[A-Z][A-Za-z0-9_$]*))?/.test(line) ||
-                /^export\s+default\s+/.test(line)
-            ) {
-                candidateComponents.push({ startLine: i, type: "arrow" });
-                break;
-            }
-        }
-    }
-
     if (candidateComponents.length === 0) {
         return null;
     }
@@ -424,7 +481,7 @@ function findEnclosingComponent(document, targetLine) {
     for (const candidate of candidateComponents) {
         let bodyOpenLine = -1;
 
-        // Search forward from candidate.startLine for the '{' that opens the component body
+        // Search forward from candidate.startLine for the '{' that opens the component function body
         for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 30); i++) {
             const lineText = document.lineAt(i).text;
             if (lineText.includes("{")) {
