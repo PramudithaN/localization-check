@@ -299,7 +299,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
 
             if (strNode && isKnownAttr) {
                 const value = strNode.value;
-                const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption)$/i.test(attrName);
+                const isLabel = isKnownAttr || /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|tooltip|alt|description|confirmText|cancelText|okText|emptyText|heading|floatingLabelText)$/i.test(attrName);
                 if (!ignoredValue(value, rules, isLabel) && !isInsideLocalizationCall(path)) {
                     const loc = strNode.loc;
                     hits.push({
@@ -311,7 +311,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                         endOffset: strNode.end,
                         value,
                         message: `Hardcoded text in "${attrName}" attribute: "${value}". Use t("...") instead.`,
-                        confidence: isLabel ? "high" : "medium",
+                        confidence: "high",
                         type: "attribute",
                     });
                 }
@@ -365,7 +365,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                 const isKnownProp = activeProps.has(propName.toLowerCase());
 
                 if (isKnownProp) {
-                    const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message)$/i.test(propName);
+                    const isLabelProp = isKnownProp || /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message|tooltip|description|header|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText|heading|badgeText)$/i.test(propName);
                     if (!ignoredValue(value, rules, isLabelProp) && !isInsideLocalizationCall(path)) {
                         const loc = strNode.loc;
                         hits.push({
@@ -377,7 +377,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                             endOffset: strNode.end,
                             value,
                             message: `Hardcoded value for "${propName}": "${value}". Use t("...") instead.`,
-                            confidence: isLabelProp ? "high" : "medium",
+                            confidence: "high",
                             type: "property",
                         });
                     }
@@ -415,7 +415,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                             endOffset: arg.end,
                             value,
                             message: `Hardcoded text in "${fnName}" call: "${value}". Use t("...") instead.`,
-                            confidence: "medium",
+                            confidence: "high",
                             type: "notification",
                         });
                     }
@@ -429,6 +429,8 @@ function findHardcodedHitsInAst(ast, rules = null) {
             if (parentAttr && parentAttr.node.name && STYLING_OR_TECHNICAL_PROPS.has(parentAttr.node.name.name)) {
                 return;
             }
+
+            const isInsideJsx = Boolean(path.findParent(p => p.isJSXElement() || p.isJSXAttribute() || p.isObjectProperty()));
 
             const checkBranch = (node) => {
                 if (node && node.type === "StringLiteral") {
@@ -444,7 +446,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                             endOffset: node.end,
                             value,
                             message: `Hardcoded string: "${value}". Use t("...") instead.`,
-                            confidence: "low",
+                            confidence: isInsideJsx ? "high" : "low",
                             type: "conditional",
                         });
                     }
@@ -462,6 +464,8 @@ function findHardcodedHitsInAst(ast, rules = null) {
                 return;
             }
 
+            const isInsideJsx = Boolean(path.findParent(p => p.isJSXElement() || p.isJSXAttribute() || p.isObjectProperty()));
+
             const checkNode = (node) => {
                 if (node && node.type === "StringLiteral") {
                     const value = node.value.trim();
@@ -476,7 +480,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                             endOffset: node.end,
                             value,
                             message: `Hardcoded string: "${value}". Use t("...") instead.`,
-                            confidence: "low",
+                            confidence: isInsideJsx ? "high" : "low",
                             type: "logical",
                         });
                     }
@@ -557,7 +561,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                     endOffset: path.node.end,
                     value: trimmedPreview,
                     message: `Hardcoded text in template literal: "${trimmedPreview}". Use t("key", { ... }) instead.`,
-                    confidence: "medium",
+                    confidence: "high",
                     type: "template_literal",
                 });
             }
@@ -606,7 +610,7 @@ function findHardcodedHitsInAst(ast, rules = null) {
                     endOffset: path.node.end,
                     value: sampleStr,
                     message: `Hardcoded string concatenation: "${sampleStr}". Use t("...") instead.`,
-                    confidence: "medium",
+                    confidence: "high",
                     type: "binary_concatenation",
                 });
             }

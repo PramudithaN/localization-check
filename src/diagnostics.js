@@ -44,8 +44,8 @@ function scanDocument(document, diagnostics, force = false) {
     }
 
     const rules = getCustomRules();
-    const minConfidence = rules.minimumConfidence || "low";
-    const minConfidenceRank = CONFIDENCE_LEVELS[minConfidence] || 1;
+    const minConfidence = rules.minimumConfidence || "high";
+    const minConfidenceRank = CONFIDENCE_LEVELS[minConfidence] || 3;
 
     const fullText = document.getText();
     const hits = findHardcodedHits(fullText, document.fileName, rules);

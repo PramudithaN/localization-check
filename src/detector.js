@@ -48,7 +48,7 @@ function getCustomRules() {
             const ignoredAttributesArray = config.get("ignoredAttributes", []) || [];
             const ignoredPropertiesArray = config.get("ignoredProperties", []) || [];
             const ignoredTagsArray = config.get("ignoredTags", []) || [];
-            const minimumConfidence = config.get("minimumConfidence", "low");
+            const minimumConfidence = config.get("minimumConfidence", "high");
 
             return {
                 customAttributes: Array.isArray(customAttributes) ? customAttributes : [],
@@ -59,7 +59,7 @@ function getCustomRules() {
                 ignoredAttributes: new Set(ignoredAttributesArray.map(a => String(a).trim().toLowerCase())),
                 ignoredProperties: new Set(ignoredPropertiesArray.map(p => String(p).trim().toLowerCase())),
                 ignoredTags: new Set(ignoredTagsArray.map(t => String(t).trim().toLowerCase())),
-                minimumConfidence: ["low", "medium", "high"].includes(minimumConfidence) ? minimumConfidence : "low",
+                minimumConfidence: ["low", "medium", "high"].includes(minimumConfidence) ? minimumConfidence : "high",
             };
         }
     } catch {
@@ -75,7 +75,7 @@ function getCustomRules() {
         ignoredAttributes: new Set(),
         ignoredProperties: new Set(),
         ignoredTags: new Set(),
-        minimumConfidence: "low",
+        minimumConfidence: "high",
     };
 }
 
@@ -126,7 +126,7 @@ function findFallbackRegexHits(text, rules) {
             while ((match = attrPattern.exec(lineText))) {
                 const attrName = match[1];
                 const value = match[3];
-                const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption)$/i.test(attrName);
+                const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|tooltip|alt|description|confirmText|cancelText|okText|emptyText|heading|floatingLabelText)$/i.test(attrName);
                 if (!ignoredValue(value, rules, isLabel) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
                     const startCol = match.index + match[0].lastIndexOf(value);
                     hits.push({
@@ -138,7 +138,7 @@ function findFallbackRegexHits(text, rules) {
                         endOffset: 0,
                         value,
                         message: `Hardcoded text in "${attrName}" attribute: "${value}". Use t("...") instead.`,
-                        confidence: isLabel ? "high" : "medium",
+                        confidence: "high",
                         type: "attribute",
                     });
                 }
@@ -172,7 +172,7 @@ function findFallbackRegexHits(text, rules) {
             while ((pMatch = propPattern.exec(lineText))) {
                 const propName = pMatch[1];
                 const value = pMatch[3];
-                const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message)$/i.test(propName);
+                const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message|tooltip|description|header|errorMessage|errorMsg|confirmText|cancelText|okText|emptyText|heading|badgeText)$/i.test(propName);
                 if (!ignoredValue(value, rules, isLabelProp) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
                     const startCol = pMatch.index + pMatch[0].lastIndexOf(value);
                     hits.push({
@@ -184,7 +184,7 @@ function findFallbackRegexHits(text, rules) {
                         endOffset: 0,
                         value,
                         message: `Hardcoded value for "${propName}": "${value}". Use t("...") instead.`,
-                        confidence: isLabelProp ? "high" : "medium",
+                        confidence: "high",
                         type: "property",
                     });
                 }

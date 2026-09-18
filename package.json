@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -200,8 +200,8 @@
             "medium",
             "high"
           ],
-          "default": "low",
-          "description": "Minimum confidence level required to flag hardcoded strings. 'high' shows only standard UI text and common attributes; 'medium' includes object properties and toast messages; 'low' includes ternary and logical expressions."
+          "default": "high",
+          "description": "Minimum confidence level required to flag hardcoded strings. 'high' flags JSX text, standard UI attributes, UI object properties, notification messages, and template strings; 'medium' and 'low' include looser expressions."
         },
         "localizationCheck.liveScanOnlyChangedFiles": {
           "type": "boolean",

@@ -91,7 +91,7 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.scriptPath`: optional relative path to a localization check script in the workspace root. Default: `"scripts/check-localization.js"`.
 - `localizationCheck.liveScan`: enables or disables live scanning. Default: `true`.
 - `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
-- `localizationCheck.minimumConfidence`: minimum confidence required to flag hardcoded strings (`"low"`, `"medium"`, `"high"`). Default: `"low"`.
+- `localizationCheck.minimumConfidence`: minimum confidence required to flag hardcoded strings (`"low"`, `"medium"`, `"high"`). Default: `"high"`.
 - `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
 - `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
 - `localizationCheck.enableCodeLens`: displays clickable `Add localization with Copilot` CodeLens buttons above detected hardcoded strings. Default: `true`.
@@ -147,7 +147,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.5.1.vsix
+code --install-extension localization-check-0.5.2.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
