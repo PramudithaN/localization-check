@@ -22,14 +22,37 @@
 - **Learn & Flag Hardcoded Patterns**: One-click action to flag previously unflagged JSX tags, attributes, or object properties. Automatically updates local settings and submits an issue to GitHub to improve detection for everyone.
 - **Ignore False Positives**: Easily ignore non-user-facing strings, technical identifiers, or custom attributes across your workspace and report false positive exceptions.
 
-## Commands
+## Commands & Keyboard Shortcuts
 
-- **Localization: Run Full Check (git staged)**: executes the project's localization check script on git-staged changes and displays results in the output panel.
-- **Localization: Re-scan Current File**: manually scans the active file again.
-- **Localization: Add Localization with Copilot**: sends the selected or underlined hardcoded string to GitHub Copilot's Language Model, inserts missing imports/hooks, updates the dictionary, and replaces the string inline with the localized expression (e.g. `t('...')` or `formatMessage(...)`).
-- **Localization: Localize All in Current File with Copilot**: sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document and translation dictionaries at once.
-- **Localization: Flag Pattern as Hardcoded Rule (Report & Learn)**: detects the JSX tag, attribute, or property at cursor, adds it to your project rules, immediately re-scans the workspace, and creates a rule suggestion issue on GitHub.
-- **Localization: Mark / Ignore as False Positive (Report & Learn)**: ignores a specific word, attribute, or property so it is never flagged again, and creates a false positive report on GitHub.
+All commands have default keyboard shortcuts configured and can be completely remapped to any key combination that suits your workflow.
+
+| Action / Command | Windows & Linux | macOS | Command ID |
+| :--- | :--- | :--- | :--- |
+| **Add Localization with Copilot** | `Alt + L` | `⌥ Option + L` (`Cmd + Alt + L`) | `localizationCheck.localizeWithCopilot` |
+| **Localize All in Current File** | `Alt + Shift + L` | `⌥ Option + ⇧ Shift + L` (`Cmd + Alt + Shift + L`) | `localizationCheck.localizeAllInFile` |
+| **Flag Pattern as Hardcoded Rule** | `Alt + F` | `⌥ Option + F` (`Cmd + Alt + F`) | `localizationCheck.flagHardcoded` |
+| **Mark / Ignore as False Positive** | `Alt + M` | `⌥ Option + M` (`Cmd + Alt + M`) | `localizationCheck.markFalsePositive` |
+| **Re-scan Current File** | `Alt + S` | `⌥ Option + S` (`Cmd + Alt + S`) | `localizationCheck.scanFile` |
+| **Run Full Check (git staged)** | `Alt + R` | `⌥ Option + R` (`Cmd + Alt + R`) | `localizationCheck.run` |
+
+### Customizing Shortcut Keys
+
+You can customize any shortcut key in VS Code to match your preference:
+1. Open **Keyboard Shortcuts** in VS Code:
+   - Press `Ctrl + K, Ctrl + S` (Windows/Linux) or `Cmd + K, Cmd + S` (macOS).
+   - Or navigate to **File** > **Preferences** > **Keyboard Shortcuts** (or **Code** > **Settings** > **Keyboard Shortcuts** on macOS).
+2. Type `localizationCheck` or `Localization:` in the search bar.
+3. Click on the edit icon or press `Enter` on any command to assign your preferred key combination.
+4. Alternatively, edit your user `keybindings.json` directly.
+
+### Command Descriptions
+
+- **Localization: Run Full Check (git staged)** (`Alt + R`): executes the project's localization check script on git-staged changes and displays results in the output panel.
+- **Localization: Re-scan Current File** (`Alt + S`): manually scans the active file again.
+- **Localization: Add Localization with Copilot** (`Alt + L`): sends the selected or underlined hardcoded string to GitHub Copilot's Language Model, inserts missing imports/hooks, updates the dictionary, and replaces the string inline with the localized expression (e.g. `t('...')` or `formatMessage(...)`).
+- **Localization: Localize All in Current File with Copilot** (`Alt + Shift + L`): sends all detected hardcoded strings in the current file to GitHub Copilot in a single batch request and automatically updates the whole document and translation dictionaries at once.
+- **Localization: Flag Pattern as Hardcoded Rule (Report & Learn)** (`Alt + F`): detects the JSX tag, attribute, or property at cursor, adds it to your project rules, immediately re-scans the workspace, and creates a rule suggestion issue on GitHub.
+- **Localization: Mark / Ignore as False Positive (Report & Learn)** (`Alt + M`): ignores a specific word, attribute, or property so it is never flagged again, and creates a false positive report on GitHub.
 
 ## Configuration
 

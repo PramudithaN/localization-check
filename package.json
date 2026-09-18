@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -100,6 +100,43 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "localizationCheck.localizeWithCopilot",
+        "key": "alt+l",
+        "mac": "cmd+alt+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "localizationCheck.localizeAllInFile",
+        "key": "alt+shift+l",
+        "mac": "cmd+alt+shift+l",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "localizationCheck.flagHardcoded",
+        "key": "alt+f",
+        "mac": "cmd+alt+f",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "localizationCheck.markFalsePositive",
+        "key": "alt+m",
+        "mac": "cmd+alt+m",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "localizationCheck.scanFile",
+        "key": "alt+s",
+        "mac": "cmd+alt+s",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "localizationCheck.run",
+        "key": "alt+r",
+        "mac": "cmd+alt+r"
+      }
+    ],
     "configuration": {
       "title": "Localization Check",
       "properties": {

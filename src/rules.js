@@ -141,6 +141,7 @@ async function appendToConfigArray(settingKey, newItem) {
  * Inspects the cursor position or selection in a document to find potential candidates.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").Range | import("vscode").Selection | import("vscode").Position} rangeOrPos
+ * @param {import("vscode").DiagnosticCollection} [diagnostics]
  * @returns {{
  *   tag: string | null,
  *   attribute: string | null,
@@ -149,7 +150,7 @@ async function appendToConfigArray(settingKey, newItem) {
  *   lineText: string
  * }}
  */
-function inspectCodeContext(document, rangeOrPos) {
+function inspectCodeContext(document, rangeOrPos, diagnostics) {
     const pos = rangeOrPos instanceof vscode.Position
         ? rangeOrPos
         : (rangeOrPos ? rangeOrPos.start : new vscode.Position(0, 0));
@@ -170,6 +171,19 @@ function inspectCodeContext(document, rangeOrPos) {
                 selectedText = qm[2].trim();
                 break;
             }
+        }
+    }
+
+    // Check if a diagnostic on current line has detected text
+    if (!selectedText && diagnostics) {
+        const docDiags = (diagnostics.get(document.uri) || []).filter(
+            d => d.source === SOURCE_NAME,
+        );
+        const matchingDiag = docDiags.find(d => d.range.contains(pos)) ||
+            docDiags.find(d => d.range.start.line === pos.line);
+        if (matchingDiag) {
+            const rawDiagText = document.getText(matchingDiag.range).trim();
+            selectedText = rawDiagText.replace(/^["'`]|["'`]$/g, "").trim();
         }
     }
 
@@ -229,7 +243,7 @@ async function handleFlagAsHardcoded(diagnostics, doc, range) {
     }
 
     const targetRange = range || (editor ? editor.selection : new vscode.Range(0, 0, 0, 0));
-    const contextInfo = inspectCodeContext(document, targetRange);
+    const contextInfo = inspectCodeContext(document, targetRange, diagnostics);
 
     const options = [];
 
@@ -351,7 +365,7 @@ async function handleMarkAsFalsePositive(diagnostics, doc, range) {
     }
 
     const targetRange = range || (editor ? editor.selection : new vscode.Range(0, 0, 0, 0));
-    const contextInfo = inspectCodeContext(document, targetRange);
+    const contextInfo = inspectCodeContext(document, targetRange, diagnostics);
 
     const options = [];
 

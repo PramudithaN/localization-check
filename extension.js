@@ -33,7 +33,7 @@ function activate(context) {
         ),
         vscode.commands.registerCommand(
             "localizationCheck.localizeWithCopilot",
-            (doc, range) => handleLocalizeWithCopilot(doc, range),
+            (doc, range) => handleLocalizeWithCopilot(doc, range, diagnostics),
         ),
         vscode.commands.registerCommand(
             "localizationCheck.localizeAllInFile",

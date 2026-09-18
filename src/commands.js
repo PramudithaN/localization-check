@@ -189,11 +189,12 @@ function adjustRangeForQuotes(document, range) {
 
 /**
  * Handles the "Add localization with Copilot" command.
- * Can be invoked via CodeAction/CodeLens with arguments or directly from editor context.
+ * Can be invoked via CodeAction/CodeLens with arguments or directly via keyboard shortcuts / editor context.
  * @param {import("vscode").TextDocument | import("vscode").Uri | any} [documentOrUri]
  * @param {import("vscode").Range | any} [rawRange]
+ * @param {import("vscode").DiagnosticCollection} [diagnosticsCollection]
  */
-async function handleLocalizeWithCopilot(documentOrUri, rawRange) {
+async function handleLocalizeWithCopilot(documentOrUri, rawRange, diagnosticsCollection) {
     const document = await resolveDocument(documentOrUri);
     if (!document) {
         vscode.window.showWarningMessage("No active editor or document found to localize.");
@@ -207,7 +208,38 @@ async function handleLocalizeWithCopilot(documentOrUri, rawRange) {
             if (!editor.selection.isEmpty) {
                 range = new vscode.Range(editor.selection.start, editor.selection.end);
             } else {
-                range = document.getWordRangeAtPosition(editor.selection.active) || null;
+                const cursorPos = editor.selection.active;
+                // Check if any diagnostic exists at cursor or on current line
+                if (diagnosticsCollection) {
+                    const docDiags = (diagnosticsCollection.get(document.uri) || []).filter(
+                        d => d.source === SOURCE_NAME,
+                    );
+                    const matchingDiag = docDiags.find(d => d.range.contains(cursorPos)) ||
+                        docDiags.find(d => d.range.start.line === cursorPos.line);
+                    if (matchingDiag) {
+                        range = matchingDiag.range;
+                    }
+                }
+
+                // If still no range, check for string literal at cursor
+                if (!range) {
+                    const lineText = document.lineAt(cursorPos.line).text;
+                    const quoteRegex = /(["'`])([^"'`]+)\1/g;
+                    let qm;
+                    while ((qm = quoteRegex.exec(lineText))) {
+                        const start = qm.index;
+                        const end = start + qm[0].length;
+                        if (cursorPos.character >= start && cursorPos.character <= end) {
+                            range = new vscode.Range(cursorPos.line, start, cursorPos.line, end);
+                            break;
+                        }
+                    }
+                }
+
+                // Fallback to word range
+                if (!range) {
+                    range = document.getWordRangeAtPosition(cursorPos) || null;
+                }
             }
         }
     }
