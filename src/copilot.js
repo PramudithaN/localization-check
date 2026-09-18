@@ -1,5 +1,6 @@
 const vscode = require("vscode");
 const { CONFIG_SECTION } = require("./constants");
+const { parseSource, findEnclosingComponentInAst } = require("./ast");
 const {
     findPrimaryDictionary,
     ensurePrimaryDictionary,
@@ -381,189 +382,16 @@ function injectImportStatement(document, edit, importStatement) {
  * @returns {{ headerLine: number, bodyOpenLine: number, indent: string, hasT: boolean } | null}
  */
 function findEnclosingComponent(document, targetLine) {
-    const candidateComponents = [];
+    const { ast } = parseSource(document.getText(), document.fileName);
+    if (!ast) return null;
 
-    for (let i = 0; i < document.lineCount; i++) {
-        const line = document.lineAt(i).text;
-        const trimmed = line.trim();
-
-        if (
-            trimmed.startsWith("//") ||
-            trimmed.startsWith("/*") ||
-            trimmed.startsWith("*") ||
-            trimmed.startsWith("import ") ||
-            trimmed.startsWith("import{")
-        ) {
-            continue;
-        }
-
-        // 1. Function declaration: e.g. function MyComponent(...) or function useMyHook(...) or export default function(...)
-        const funcMatch = trimmed.match(
-            /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function(?:\s+([A-Za-z0-9_$]+))?\s*(?:<[^>]*>)?\s*\(/,
-        );
-        if (funcMatch) {
-            const name = funcMatch[1];
-            // Must be PascalCase component, custom hook (use...), or default export function
-            const isComponentOrHook =
-                !name ||
-                /^[A-Z][A-Za-z0-9_$]*$/.test(name) ||
-                /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
-
-            if (isComponentOrHook) {
-                candidateComponents.push({ startLine: i, type: "function" });
-                continue;
-            }
-        }
-
-        // 2. Arrow function or function expression: e.g.
-        // const MyComponent = (...) => {
-        // export const MyComponent: React.FC<Props> = ({ ... }) => {
-        // const MyComponent = forwardRef(...)
-        // const useMyHook = (...) => {
-        const varMatch = trimmed.match(
-            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)/,
-        );
-        if (varMatch) {
-            const name = varMatch[1];
-            const isPascalOrHook =
-                /^[A-Z][A-Za-z0-9_$]*$/.test(name) ||
-                /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
-
-            if (isPascalOrHook) {
-                // Check if this declaration defines a FUNCTION or COMPONENT (MUST contain =>, function, forwardRef, or memo)
-                let isComponentDef = false;
-                let declarationText = "";
-                for (let j = i; j < Math.min(document.lineCount, i + 10); j++) {
-                    const checkLine = document.lineAt(j).text;
-                    declarationText += " " + checkLine;
-                    if (
-                        /=>/.test(declarationText) ||
-                        /\bfunction\s*\(/.test(declarationText) ||
-                        /\b(?:React\.)?(?:memo|forwardRef)\s*\(/.test(declarationText)
-                    ) {
-                        isComponentDef = true;
-                        break;
-                    }
-                    // Stop if we hit an object literal assignment `= {` or array `= [` without an arrow or function
-                    if (
-                        /=\s*\{/.test(declarationText) ||
-                        /=\s*\[/.test(declarationText) ||
-                        /=\s*new\b/.test(declarationText)
-                    ) {
-                        isComponentDef = false;
-                        break;
-                    }
-                    if (j > i && /^[A-Za-z0-9_$]/.test(checkLine.trim()) && checkLine.includes("=")) {
-                        break;
-                    }
-                }
-
-                if (isComponentDef) {
-                    candidateComponents.push({ startLine: i, type: "arrow" });
-                    continue;
-                }
-            }
-        }
-
-        // 3. Anonymous default export arrow component: e.g. export default (...) => {
-        if (/^export\s+default\s+(?:\([^)]*\)|[A-Za-z0-9_$]+|\s*(?:<[^>]*>)?)\s*=>/.test(trimmed)) {
-            candidateComponents.push({ startLine: i, type: "arrow" });
-        }
-    }
-
-    if (candidateComponents.length === 0) {
-        return null;
-    }
-
-    // Evaluate candidates to find the one that encloses targetLine
-    const validEnclosing = [];
-
-    for (const candidate of candidateComponents) {
-        let bodyOpenLine = -1;
-
-        // Search forward from candidate.startLine for the '{' that opens the component function body
-        for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 30); i++) {
-            const lineText = document.lineAt(i).text;
-            if (lineText.includes("{")) {
-                bodyOpenLine = i;
-                break;
-            }
-        }
-
-        if (bodyOpenLine === -1) continue;
-
-        // Find closing '}' of component body
-        let depth = 0;
-        let bodyCloseLine = -1;
-        let foundStart = false;
-
-        for (let i = bodyOpenLine; i < document.lineCount; i++) {
-            const lineText = document.lineAt(i).text;
-            let inQuote = null;
-
-            for (let j = 0; j < lineText.length; j++) {
-                const char = lineText[j];
-                if (inQuote) {
-                    if (char === inQuote && lineText[j - 1] !== "\\") inQuote = null;
-                } else if (char === '"' || char === "'" || char === "`") {
-                    inQuote = char;
-                } else if (char === "/" && lineText[j + 1] === "/") {
-                    break; // line comment
-                } else if (char === "{" || char === "(") {
-                    if (char === "{") {
-                        depth++;
-                        foundStart = true;
-                    }
-                } else if (char === "}") {
-                    depth--;
-                    if (foundStart && depth === 0) {
-                        bodyCloseLine = i;
-                        break;
-                    }
-                }
-            }
-            if (foundStart && depth === 0) break;
-        }
-
-        if (bodyCloseLine === -1) bodyCloseLine = document.lineCount - 1;
-
-        // Check if targetLine is strictly inside this component
-        if (targetLine >= bodyOpenLine && targetLine <= bodyCloseLine) {
-            validEnclosing.push({
-                headerLine: candidate.startLine,
-                bodyOpenLine,
-                bodyCloseLine,
-            });
-        }
-    }
-
-    if (validEnclosing.length === 0) {
-        return null;
-    }
-
-    // If multiple enclosing components, pick innermost (smallest range)
-    validEnclosing.sort((a, b) => (a.bodyCloseLine - a.bodyOpenLine) - (b.bodyCloseLine - b.bodyOpenLine));
-    const best = validEnclosing[0];
-
-    // Check if component already declares `t` or `useTranslation`
-    const componentText = document.getText(
-        new vscode.Range(
-            new vscode.Position(best.headerLine, 0),
-            new vscode.Position(best.bodyCloseLine, document.lineAt(best.bodyCloseLine).text.length),
-        ),
-    );
-
-    const hasT =
-        /\bconst\s*\{\s*[^}]*\bt\b[^}]*\}\s*=\s*useTranslation\b/.test(componentText) ||
-        /\bconst\s*\{\s*t\s*\}\s*=/.test(componentText) ||
-        /\bconst\s+t\s*=\s*useTranslation\b/.test(componentText) ||
-        /\bconst\s+t\s*=/.test(componentText) ||
-        /\buseTranslation\s*\(\s*\)/.test(componentText);
+    const componentInfo = findEnclosingComponentInAst(ast, targetLine);
+    if (!componentInfo) return null;
 
     // Calculate proper indentation for hook insertion inside component body
     let indent = "";
-    if (best.bodyOpenLine + 1 < document.lineCount) {
-        const nextLine = document.lineAt(best.bodyOpenLine + 1).text;
+    if (componentInfo.bodyOpenLine + 1 < document.lineCount) {
+        const nextLine = document.lineAt(componentInfo.bodyOpenLine + 1).text;
         const nextIndent = nextLine.match(/^\s*/);
         if (nextIndent && nextIndent[0].length > 0 && nextLine.trim().length > 0) {
             indent = nextIndent[0];
@@ -571,18 +399,14 @@ function findEnclosingComponent(document, targetLine) {
     }
 
     if (!indent) {
-        const headerLineText = document.lineAt(best.headerLine).text;
+        const headerLineText = document.lineAt(componentInfo.headerLine).text;
         const headerIndentMatch = headerLineText.match(/^\s*/);
         const baseIndent = headerIndentMatch ? headerIndentMatch[0] : "";
         indent = baseIndent + "    ";
     }
 
-    return {
-        headerLine: best.headerLine,
-        bodyOpenLine: best.bodyOpenLine,
-        indent,
-        hasT,
-    };
+    componentInfo.indent = indent;
+    return componentInfo;
 }
 
 /**
@@ -1019,13 +843,25 @@ async function localizeAllInDocument(document, diagnostics) {
                     parsedBatch ? parsedBatch.neededHook : null,
                 );
 
+                // Prompt user for confirmation before applying batch modifications
+                const confirmChoice = await vscode.window.showInformationMessage(
+                    `Localize All: Found ${appliedCount} string${appliedCount > 1 ? "s" : ""} to localize and ${dictionaryEntries.length} new key${dictionaryEntries.length > 1 ? "s" : ""} for en.json. Apply changes?`,
+                    { modal: true },
+                    "Apply",
+                );
+
+                if (confirmChoice !== "Apply") {
+                    vscode.window.showInformationMessage("Batch localization cancelled.");
+                    return false;
+                }
+
                 const applied = await vscode.workspace.applyEdit(edit);
                 if (!applied) {
                     vscode.window.showErrorMessage("Failed to apply batch localization edits to document.");
                     return false;
                 }
 
-                // Update en.json and sibling dictionaries
+                // Update en.json only after edit is successfully applied
                 let dictCount = 0;
                 if (autoUpdateDict && dictionaryEntries.length > 0) {
                     const dictRes = await addEntriesToDictionaries(dictionaryEntries);

@@ -5,6 +5,7 @@ const { CONFIG_SECTION, DEFAULT_SCRIPT_PATH, SOURCE_NAME } = require("./constant
 const { scanDocument } = require("./diagnostics");
 const { localizeWithCopilot, localizeAllInDocument } = require("./copilot");
 const { handleFlagAsHardcoded, handleMarkAsFalsePositive } = require("./rules");
+const { findUnusedDictionaryKeys } = require("./dictionary");
 
 /**
  * Runs the workspace check-localization.js script on staged files and shows the output.
@@ -302,10 +303,28 @@ async function handleFlagHardcodedCommand(diagnosticsCollection, documentOrUri, 
  * @param {import("vscode").TextDocument | import("vscode").Uri | any} [documentOrUri]
  * @param {import("vscode").Range | any} [rawRange]
  */
-async function handleMarkFalsePositiveCommand(diagnosticsCollection, documentOrUri, rawRange) {
-    const document = await resolveDocument(documentOrUri);
-    const range = resolveRange(rawRange);
-    await handleMarkAsFalsePositive(diagnosticsCollection, document, range);
+/**
+ * Handles the "Find Unused Translation Keys" command.
+ * @param {import("vscode").OutputChannel} outputChannel
+ */
+async function handleFindUnusedKeys(outputChannel) {
+    const result = await findUnusedDictionaryKeys(outputChannel);
+    if (!result || result.totalKeys === 0) return;
+
+    if (result.unusedKeys.length === 0) {
+        vscode.window.showInformationMessage("Localization Check: All dictionary keys are in use!");
+    } else {
+        vscode.window
+            .showInformationMessage(
+                `Localization Check: Found ${result.unusedKeys.length} unused key${result.unusedKeys.length > 1 ? "s" : ""} in dictionary.`,
+                "Show Report",
+            )
+            .then(choice => {
+                if (choice === "Show Report" && outputChannel) {
+                    outputChannel.show(true);
+                }
+            });
+    }
 }
 
 module.exports = {
@@ -315,4 +334,5 @@ module.exports = {
     handleLocalizeAllInFile,
     handleFlagHardcodedCommand,
     handleMarkFalsePositiveCommand,
+    handleFindUnusedKeys,
 };

@@ -274,6 +274,81 @@ async function addEntriesToDictionaries(entries) {
     }
 }
 
+/**
+ * Scans workspace files for translation key references and compares against the primary dictionary.
+ * @param {vscode.OutputChannel} [outputChannel]
+ * @returns {Promise<{ totalKeys: number, usedKeys: number, unusedKeys: string[], dictionaryPath: string }>}
+ */
+async function findUnusedDictionaryKeys(outputChannel) {
+    const primaryUri = await findPrimaryDictionary();
+    if (!primaryUri) {
+        vscode.window.showWarningMessage("Localization Check: No primary translation dictionary (e.g. en.json) found in workspace.");
+        return { totalKeys: 0, usedKeys: 0, unusedKeys: [], dictionaryPath: "" };
+    }
+
+    const dictContext = await getDictionaryContext(primaryUri);
+    const definedKeys = Object.keys(dictContext.existingKeysMap || {});
+    if (definedKeys.length === 0) {
+        vscode.window.showInformationMessage("Localization Check: Primary dictionary contains no keys.");
+        return { totalKeys: 0, usedKeys: 0, unusedKeys: [], dictionaryPath: primaryUri.fsPath };
+    }
+
+    const excludePattern = "**/{node_modules,dist,build,coverage,.git,.next,.turbo,.vscode,out,bin}/**";
+    const files = await vscode.workspace.findFiles("**/*.{js,jsx,ts,tsx}", excludePattern);
+
+    const foundKeys = new Set();
+    const KEY_USAGE_REGEX = /\b(?:i18n\.)?t\s*\(\s*["'`]([^"'`]+)["'`]|id\s*:\s*["'`]([^"'`]+)["'`]/g;
+
+    for (const fileUri of files) {
+        try {
+            const data = await vscode.workspace.fs.readFile(fileUri);
+            const content = Buffer.from(data).toString("utf-8");
+            let match;
+            KEY_USAGE_REGEX.lastIndex = 0;
+            while ((match = KEY_USAGE_REGEX.exec(content))) {
+                const key = match[1] || match[2];
+                if (key) {
+                    foundKeys.add(key.trim());
+                }
+            }
+        } catch {
+            // continue reading other files
+        }
+    }
+
+    const unusedKeys = definedKeys.filter(key => !foundKeys.has(key));
+
+    if (outputChannel) {
+        outputChannel.clear();
+        outputChannel.show(true);
+        outputChannel.appendLine("========================================================");
+        outputChannel.appendLine(" Localization Check: Unused Translation Keys Report");
+        outputChannel.appendLine("========================================================");
+        outputChannel.appendLine(`Dictionary: ${primaryUri.fsPath}`);
+        outputChannel.appendLine(`Total Keys Defined: ${definedKeys.length}`);
+        outputChannel.appendLine(`Keys In Use: ${definedKeys.length - unusedKeys.length}`);
+        outputChannel.appendLine(`Unused Keys Found: ${unusedKeys.length}\n`);
+
+        if (unusedKeys.length === 0) {
+            outputChannel.appendLine("All dictionary keys appear to be referenced in the workspace.");
+        } else {
+            outputChannel.appendLine("Unused Keys:");
+            unusedKeys.forEach((k, idx) => {
+                const val = dictContext.existingKeysMap[k];
+                outputChannel.appendLine(`  ${idx + 1}. "${k}": "${val}"`);
+            });
+            outputChannel.appendLine("\nNote: Dynamic keys (e.g. t(dynamicVar)) cannot be resolved statically and may appear as unused.");
+        }
+    }
+
+    return {
+        totalKeys: definedKeys.length,
+        usedKeys: definedKeys.length - unusedKeys.length,
+        unusedKeys,
+        dictionaryPath: primaryUri.fsPath,
+    };
+}
+
 module.exports = {
     findPrimaryDictionary,
     ensurePrimaryDictionary,
@@ -281,4 +356,5 @@ module.exports = {
     getDictionaryContext,
     setDeepProperty,
     addEntriesToDictionaries,
+    findUnusedDictionaryKeys,
 };

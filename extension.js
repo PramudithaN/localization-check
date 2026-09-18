@@ -8,6 +8,7 @@ const {
     handleLocalizeAllInFile,
     handleFlagHardcodedCommand,
     handleMarkFalsePositiveCommand,
+    handleFindUnusedKeys,
 } = require("./src/commands");
 const { LocalizationCodeActionProvider, LocalizationCodeLensProvider } = require("./src/providers");
 const { watchStagedChanges, watchChangedFiles } = require("./src/git");
@@ -30,6 +31,9 @@ function activate(context) {
         ),
         vscode.commands.registerCommand("localizationCheck.scanFile", () =>
             scanCurrentFile(diagnostics),
+        ),
+        vscode.commands.registerCommand("localizationCheck.findUnusedKeys", () =>
+            handleFindUnusedKeys(outputChannel),
         ),
         vscode.commands.registerCommand(
             "localizationCheck.localizeWithCopilot",

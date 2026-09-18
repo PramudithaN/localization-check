@@ -1,12 +1,13 @@
 const vscode = require("vscode");
 const { RELEVANT_LANGUAGES, CONFIG_SECTION, SOURCE_NAME } = require("./constants");
-const {
-    findHardcodedRangesInLine,
-    findStandaloneJsxTextRange,
-    findNotificationHits,
-    findMultilineHardcodedHits,
-} = require("./detector");
+const { findHardcodedHits, getCustomRules } = require("./detector");
 const { isDocumentChanged } = require("./git");
+
+const CONFIDENCE_LEVELS = {
+    low: 1,
+    medium: 2,
+    high: 3,
+};
 
 /**
  * Returns the configured DiagnosticSeverity (Warning or Error).
@@ -23,7 +24,7 @@ function getDiagnosticSeverity() {
 }
 
 /**
- * Scans a text document for hardcoded strings and updates the DiagnosticCollection.
+ * Scans a text document for hardcoded strings using AST visitor and updates DiagnosticCollection.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").DiagnosticCollection} diagnostics
  * @param {boolean} [force]
@@ -42,67 +43,37 @@ function scanDocument(document, diagnostics, force = false) {
         return;
     }
 
-    const results = [];
-    const severity = getDiagnosticSeverity();
-
-    for (let i = 0; i < document.lineCount; i++) {
-        const line = document.lineAt(i);
-        const hits = findHardcodedRangesInLine(line.text);
-        const standaloneJsxTextHit = findStandaloneJsxTextRange(document, i);
-        if (standaloneJsxTextHit) hits.push(standaloneJsxTextHit);
-
-        hits.forEach(hit => {
-            const range = new vscode.Range(i, hit.start, i, hit.end);
-            const diagnostic = new vscode.Diagnostic(
-                range,
-                hit.message,
-                severity,
-            );
-            diagnostic.source = SOURCE_NAME;
-            results.push(diagnostic);
-        });
-    }
+    const rules = getCustomRules();
+    const minConfidence = rules.minimumConfidence || "low";
+    const minConfidenceRank = CONFIDENCE_LEVELS[minConfidence] || 1;
 
     const fullText = document.getText();
+    const hits = findHardcodedHits(fullText, document.fileName, rules);
 
-    // Multiline properties and attributes (e.g. label:\n "...", description:\n "...")
-    const multilineHits = findMultilineHardcodedHits(fullText);
-    multilineHits.forEach(hit => {
-        const startPos = document.positionAt(hit.startOffset);
-        const endPos = document.positionAt(hit.endOffset);
-        const range = new vscode.Range(startPos, endPos);
-        const alreadyExists = results.some(
-            d => d.range.start.line === range.start.line && d.range.start.character === range.start.character,
-        );
-        if (!alreadyExists) {
-            const diagnostic = new vscode.Diagnostic(
-                range,
-                hit.message,
-                severity,
-            );
-            diagnostic.source = SOURCE_NAME;
-            results.push(diagnostic);
-        }
-    });
+    const severity = getDiagnosticSeverity();
+    const results = [];
 
-    // Multiline and single-line notification function checks across the document
-    const notificationHits = findNotificationHits(fullText);
-    notificationHits.forEach(hit => {
-        const startPos = document.positionAt(hit.startOffset);
-        const endPos = document.positionAt(hit.endOffset);
-        const range = new vscode.Range(startPos, endPos);
-        const alreadyExists = results.some(
-            d => d.range.start.line === range.start.line && d.range.start.character === range.start.character,
-        );
-        if (!alreadyExists) {
-            const diagnostic = new vscode.Diagnostic(
-                range,
-                hit.message,
-                severity,
-            );
-            diagnostic.source = SOURCE_NAME;
-            results.push(diagnostic);
+    hits.forEach(hit => {
+        const hitRank = CONFIDENCE_LEVELS[hit.confidence] || 1;
+        if (hitRank < minConfidenceRank) {
+            return;
         }
+
+        const range = new vscode.Range(
+            hit.startLine,
+            hit.startCol,
+            hit.endLine,
+            hit.endCol,
+        );
+
+        const diagnostic = new vscode.Diagnostic(
+            range,
+            hit.message,
+            severity,
+        );
+        diagnostic.source = SOURCE_NAME;
+        diagnostic.code = hit.confidence; // e.g. "high", "medium", "low"
+        results.push(diagnostic);
     });
 
     diagnostics.set(document.uri, results);
@@ -122,4 +93,3 @@ module.exports = {
     scanDocument,
     scanAllOpenDocuments,
 };
-

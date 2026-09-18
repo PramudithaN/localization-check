@@ -122,9 +122,11 @@ class LocalizationCodeLensProvider {
         const codeLenses = [];
         diagnostics.forEach(diagnostic => {
             if (diagnostic.source === SOURCE_NAME) {
+                const confidence = diagnostic.code ? String(diagnostic.code) : "high";
+                const confidenceSuffix = confidence === "low" ? " [Low Confidence]" : "";
                 const codeLens = new vscode.CodeLens(diagnostic.range, {
-                    title: "$(sparkle) Add localization with Copilot",
-                    tooltip: "Use GitHub Copilot to extract and replace this hardcoded string with localized code",
+                    title: `$(sparkle) Add localization with Copilot${confidenceSuffix}`,
+                    tooltip: `Use GitHub Copilot to extract and replace this hardcoded string (${confidence} confidence)`,
                     command: "localizationCheck.localizeWithCopilot",
                     arguments: [document.uri, diagnostic.range],
                 });

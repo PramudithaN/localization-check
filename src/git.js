@@ -5,13 +5,22 @@ const { CONFIG_SECTION, DEFAULT_SCRIPT_PATH } = require("./constants");
 
 /**
  * Retrieves the Git extension API if available.
+ * @param {import("vscode").OutputChannel} [outputChannel]
  * @returns {any | null}
  */
-function getGitAPI() {
-    const gitExtension = vscode.extensions.getExtension("vscode.git");
-    if (!gitExtension) return null;
-    const exports = gitExtension.isActive ? gitExtension.exports : null;
-    return exports ? exports.getAPI(1) : null;
+function getGitAPI(outputChannel = null) {
+    try {
+        const gitExtension = vscode.extensions.getExtension("vscode.git");
+        if (!gitExtension) {
+            if (outputChannel) outputChannel.appendLine("[debug] vscode.git extension not available.");
+            return null;
+        }
+        const exports = gitExtension.isActive ? gitExtension.exports : null;
+        return exports ? exports.getAPI(1) : null;
+    } catch (err) {
+        if (outputChannel) outputChannel.appendLine(`[debug] Error accessing Git API: ${err && err.message}`);
+        return null;
+    }
 }
 
 /**

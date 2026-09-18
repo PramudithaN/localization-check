@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -13,11 +13,17 @@
   "engines": {
     "vscode": "^1.84.0"
   },
-  "categories": ["Linters"],
+  "categories": [
+    "Linters"
+  ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./extension.js",
+  "scripts": {
+    "test": "mocha test/suite/**/*.test.js",
+    "check:version": "node scripts/check-version.js"
+  },
   "contributes": {
     "commands": [
       {
@@ -27,6 +33,14 @@
       {
         "command": "localizationCheck.scanFile",
         "title": "Localization: Re-scan Current File"
+      },
+      {
+        "command": "localizationCheck.findUnusedKeys",
+        "title": "Localization: Find Unused Translation Keys",
+        "icon": {
+          "light": "images/LF-ico.png",
+          "dark": "images/LF-ico.png"
+        }
       },
       {
         "command": "localizationCheck.localizeWithCopilot",
@@ -63,12 +77,27 @@
     ],
     "menus": {
       "commandPalette": [
-        { "command": "localizationCheck.run" },
-        { "command": "localizationCheck.scanFile" },
-        { "command": "localizationCheck.localizeWithCopilot" },
-        { "command": "localizationCheck.localizeAllInFile" },
-        { "command": "localizationCheck.flagHardcoded" },
-        { "command": "localizationCheck.markFalsePositive" }
+        {
+          "command": "localizationCheck.run"
+        },
+        {
+          "command": "localizationCheck.scanFile"
+        },
+        {
+          "command": "localizationCheck.findUnusedKeys"
+        },
+        {
+          "command": "localizationCheck.localizeWithCopilot"
+        },
+        {
+          "command": "localizationCheck.localizeAllInFile"
+        },
+        {
+          "command": "localizationCheck.flagHardcoded"
+        },
+        {
+          "command": "localizationCheck.markFalsePositive"
+        }
       ],
       "editor/title": [
         {
@@ -101,6 +130,11 @@
       ]
     },
     "keybindings": [
+      {
+        "command": "localizationCheck.findUnusedKeys",
+        "key": "alt+u",
+        "mac": "cmd+alt+u"
+      },
       {
         "command": "localizationCheck.localizeWithCopilot",
         "key": "alt+l",
@@ -152,9 +186,22 @@
         },
         "localizationCheck.diagnosticSeverity": {
           "type": "string",
-          "enum": ["error", "warning"],
+          "enum": [
+            "error",
+            "warning"
+          ],
           "default": "error",
           "description": "Severity used for live diagnostics in the Problems panel. Use 'error' to make unlocalized text show as an error."
+        },
+        "localizationCheck.minimumConfidence": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default": "low",
+          "description": "Minimum confidence level required to flag hardcoded strings. 'high' shows only standard UI text and common attributes; 'medium' includes object properties and toast messages; 'low' includes ternary and logical expressions."
         },
         "localizationCheck.liveScanOnlyChangedFiles": {
           "type": "boolean",
@@ -193,50 +240,71 @@
         },
         "localizationCheck.customAttributes": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Additional HTML/JSX attribute names that should be flagged as hardcoded strings (e.g. ['caption', 'headerTitle', 'badgeText'])."
         },
         "localizationCheck.customProperties": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Additional object property names that should be flagged as hardcoded strings (e.g. ['subTitle', 'heading', 'bannerText'])."
         },
         "localizationCheck.customWords": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Specific words, phrases, or string literals to explicitly flag as hardcoded across the workspace (e.g. ['Submit', 'Update', 'Save'])."
         },
         "localizationCheck.customTags": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Additional JSX/HTML component/tag names whose inner text should be flagged as hardcoded (e.g. ['Typography', 'Badge', 'Alert'])."
         },
         "localizationCheck.ignoredWords": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Specific words, phrases, or technical literals that should never be flagged as hardcoded strings."
         },
         "localizationCheck.ignoredAttributes": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Attribute names to ignore and never flag (e.g. ['data-testid', 'className'])."
         },
         "localizationCheck.ignoredProperties": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "description": "Object property names to ignore and never flag (e.g. ['id', 'key', 'status'])."
         },
         "localizationCheck.ignoredTags": {
           "type": "array",
-          "items": { "type": "string" },
-          "default": ["code", "pre", "script", "style"],
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "code",
+            "pre",
+            "script",
+            "style"
+          ],
           "description": "JSX/HTML tag names whose inner text should be ignored (e.g. ['code', 'pre'])."
         },
         "localizationCheck.githubRepo": {
@@ -246,5 +314,12 @@
         }
       }
     }
+  },
+  "dependencies": {
+    "@babel/parser": "^8.0.5",
+    "@babel/traverse": "^8.0.5"
+  },
+  "devDependencies": {
+    "mocha": "^12.0.2"
   }
 }

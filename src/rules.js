@@ -5,6 +5,7 @@ const {
     DEFAULT_GITHUB_REPO,
     SOURCE_NAME,
 } = require("./constants");
+const { parseSource, inspectCodeContextAtPosition } = require("./ast");
 const { scanAllOpenDocuments, scanDocument } = require("./diagnostics");
 
 /**
@@ -187,35 +188,49 @@ function inspectCodeContext(document, rangeOrPos, diagnostics) {
         }
     }
 
-    // Inspect JSX Tag
+    // Inspect JSX Tag, Attribute, and Property using AST parser when available
     let tag = null;
-    const tagMatch = lineText.match(/<\/?([A-Za-z][\w.-]*)/);
-    if (tagMatch) {
-        tag = tagMatch[1];
-    } else {
-        // Look up previous lines for unclosed tag
-        for (let i = pos.line - 1; i >= Math.max(0, pos.line - 15); i--) {
-            const prevText = document.lineAt(i).text.trim();
-            const prevTagMatch = prevText.match(/<([A-Za-z][\w.-]*)/);
-            if (prevTagMatch) {
-                tag = prevTagMatch[1];
-                break;
+    let attribute = null;
+    let property = null;
+
+    const { ast } = parseSource(document.getText(), document.fileName);
+    if (ast) {
+        const astContext = inspectCodeContextAtPosition(ast, pos.line, pos.character);
+        if (astContext.tag) tag = astContext.tag;
+        if (astContext.attribute) attribute = astContext.attribute;
+        if (astContext.property) property = astContext.property;
+        if (astContext.selectedText && !selectedText) selectedText = astContext.selectedText;
+    }
+
+    if (!tag) {
+        const tagMatch = lineText.match(/<\/?([A-Za-z][\w.-]*)/);
+        if (tagMatch) {
+            tag = tagMatch[1];
+        } else {
+            // Look up previous lines for unclosed tag
+            for (let i = pos.line - 1; i >= Math.max(0, pos.line - 15); i--) {
+                const prevText = document.lineAt(i).text.trim();
+                const prevTagMatch = prevText.match(/<([A-Za-z][\w.-]*)/);
+                if (prevTagMatch) {
+                    tag = prevTagMatch[1];
+                    break;
+                }
             }
         }
     }
 
-    // Inspect Attribute (e.g. placeholder="...", customLabel='...')
-    let attribute = null;
-    const attrMatch = lineText.match(/\b([a-zA-Z0-9_-]+)\s*=\s*(["'])([^"']*)\2/);
-    if (attrMatch) {
-        attribute = attrMatch[1];
+    if (!attribute) {
+        const attrMatch = lineText.match(/\b([a-zA-Z0-9_-]+)\s*=\s*(["'])([^"']*)\2/);
+        if (attrMatch) {
+            attribute = attrMatch[1];
+        }
     }
 
-    // Inspect Object Property (e.g. title: "...", subHeader: '...')
-    let property = null;
-    const propMatch = lineText.match(/\b([a-zA-Z0-9_$]+)\s*:\s*(["'`])([^"'`]*)\2/);
-    if (propMatch) {
-        property = propMatch[1];
+    if (!property) {
+        const propMatch = lineText.match(/\b([a-zA-Z0-9_$]+)\s*:\s*(["'`])([^"'`]*)\2/);
+        if (propMatch) {
+            property = propMatch[1];
+        }
     }
 
     return {
