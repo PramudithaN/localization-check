@@ -684,6 +684,7 @@ async function localizeWithCopilot(document, range) {
 
         // Fetch dictionary context
         const primaryDictUri = await findPrimaryDictionary();
+        const dictContext = await getDictionaryContext(primaryDictUri);
         // Format existing dictionary sample & common keys
         const existingCommonEntries = Object.entries(dictContext.existingKeysMap || {})
             .filter(([k]) => k.startsWith("common."))
