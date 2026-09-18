@@ -191,6 +191,7 @@ function getSurroundingContext(document, range) {
 
 /**
  * Detects the i18n setup and framework used in the workspace and file.
+ * Strictly defaults to react-i18next with `const { t } = useTranslation()`.
  * @param {import("vscode").TextDocument} document
  * @returns {Promise<{ framework: string, importStatement: string, hookStatement: string, isReact: boolean }>}
  */
@@ -203,15 +204,7 @@ async function detectI18nSetup(document) {
         /\bimport\s+React\b/.test(text) ||
         /<\s*[A-Za-z][A-Za-z0-9_.]*(?:\s+[^>]*?)?>/.test(text);
 
-    // 1. Check if the file itself already has i18n imports
-    if (/\bfrom\s+['"]next-intl['"]/.test(text)) {
-        return {
-            framework: "next-intl",
-            importStatement: "import { useTranslations } from 'next-intl';",
-            hookStatement: "const t = useTranslations();",
-            isReact,
-        };
-    }
+    // If next-i18next is specifically imported
     if (/\bfrom\s+['"]next-i18next['"]/.test(text)) {
         return {
             framework: "next-i18next",
@@ -220,122 +213,13 @@ async function detectI18nSetup(document) {
             isReact,
         };
     }
-    if (/\bfrom\s+['"]react-intl['"]/.test(text)) {
-        return {
-            framework: "react-intl",
-            importStatement: "import { useIntl } from 'react-intl';",
-            hookStatement: "const { formatMessage: t } = useIntl();",
-            isReact,
-        };
-    }
-    if (/\bfrom\s+['"]react-i18next['"]/.test(text)) {
-        return {
-            framework: "react-i18next",
-            importStatement: "import { useTranslation } from 'react-i18next';",
-            hookStatement: "const { t } = useTranslation();",
-            isReact,
-        };
-    }
-    if (/\bfrom\s+['"]@lingui\/react['"]/.test(text)) {
-        return {
-            framework: "lingui",
-            importStatement: "import { useLingui } from '@lingui/react';",
-            hookStatement: "const { t } = useLingui();",
-            isReact,
-        };
-    }
-    if (/\bfrom\s+['"]i18next['"]/.test(text)) {
-        return {
-            framework: "i18next",
-            importStatement: isReact ? "import { useTranslation } from 'react-i18next';" : "import i18n from 'i18next';",
-            hookStatement: isReact ? "const { t } = useTranslation();" : "",
-            isReact,
-        };
-    }
 
-    // 2. Check workspace package.json to see which package is installed
-    try {
-        const pkgFiles = await vscode.workspace.findFiles(
-            "**/package.json",
-            "**/{node_modules,dist,build,coverage,.git,.next,.turbo}/**",
-            1,
-        );
-        if (pkgFiles && pkgFiles.length > 0) {
-            const pkgData = await vscode.workspace.fs.readFile(pkgFiles[0]);
-            const pkg = JSON.parse(Buffer.from(pkgData).toString("utf-8"));
-            const allDeps = {
-                ...(pkg.dependencies || {}),
-                ...(pkg.devDependencies || {}),
-            };
-
-            if (allDeps["next-intl"]) {
-                return {
-                    framework: "next-intl",
-                    importStatement: "import { useTranslations } from 'next-intl';",
-                    hookStatement: "const t = useTranslations();",
-                    isReact,
-                };
-            }
-            if (allDeps["next-i18next"]) {
-                return {
-                    framework: "next-i18next",
-                    importStatement: "import { useTranslation } from 'next-i18next';",
-                    hookStatement: "const { t } = useTranslation();",
-                    isReact,
-                };
-            }
-            if (allDeps["react-intl"]) {
-                return {
-                    framework: "react-intl",
-                    importStatement: "import { useIntl } from 'react-intl';",
-                    hookStatement: "const { formatMessage: t } = useIntl();",
-                    isReact,
-                };
-            }
-            if (allDeps["react-i18next"]) {
-                return {
-                    framework: "react-i18next",
-                    importStatement: "import { useTranslation } from 'react-i18next';",
-                    hookStatement: "const { t } = useTranslation();",
-                    isReact,
-                };
-            }
-            if (allDeps["@lingui/react"]) {
-                return {
-                    framework: "lingui",
-                    importStatement: "import { useLingui } from '@lingui/react';",
-                    hookStatement: "const { t } = useLingui();",
-                    isReact,
-                };
-            }
-            if (allDeps["i18next"]) {
-                return {
-                    framework: "i18next",
-                    importStatement: isReact ? "import { useTranslation } from 'react-i18next';" : "import i18n from 'i18next';",
-                    hookStatement: isReact ? "const { t } = useTranslation();" : "",
-                    isReact,
-                };
-            }
-        }
-    } catch {
-        // ignore package read failure
-    }
-
-    // 3. Sensible defaults
-    if (isReact) {
-        return {
-            framework: "react-i18next",
-            importStatement: "import { useTranslation } from 'react-i18next';",
-            hookStatement: "const { t } = useTranslation();",
-            isReact: true,
-        };
-    }
-
+    // Default strictly to standard react-i18next with `const { t } = useTranslation();`
     return {
-        framework: "i18next",
-        importStatement: "import i18n from 'i18next';",
-        hookStatement: "",
-        isReact: false,
+        framework: "react-i18next",
+        importStatement: "import { useTranslation } from 'react-i18next';",
+        hookStatement: "const { t } = useTranslation();",
+        isReact: true,
     };
 }
 
@@ -348,7 +232,7 @@ async function detectI18nSetup(document) {
 function isFileMissingImport(fileContent, importStatement) {
     if (!importStatement || !importStatement.trim()) return false;
 
-    // Extract imported symbols, e.g. useTranslation, useTranslations, useIntl, i18n, t
+    // Extract imported symbols, e.g. useTranslation, t
     const namedMatch = importStatement.match(/import\s*\{\s*([^}]+)\s*\}\s*from/);
     const defaultMatch = importStatement.match(/import\s+([a-zA-Z0-9_$]+)\s+from/);
 
@@ -427,7 +311,7 @@ function injectImportStatement(document, edit, importStatement) {
 }
 
 /**
- * Scans top-level components/functions in the document to find the one enclosing targetLine.
+ * Scans top-level and nested components/functions in the document to find the one enclosing targetLine.
  * Ensures hooks are ONLY injected inside valid React Functional Components or Custom Hooks,
  * never inside plain constants, object literals, array literals, or module scope.
  * @param {import("vscode").TextDocument} document
@@ -445,9 +329,7 @@ function findEnclosingComponent(document, targetLine) {
             trimmed.startsWith("//") ||
             trimmed.startsWith("/*") ||
             trimmed.startsWith("*") ||
-            trimmed.startsWith("import ") ||
-            trimmed.startsWith("type ") ||
-            trimmed.startsWith("interface ")
+            trimmed.startsWith("import ")
         ) {
             continue;
         }
@@ -470,42 +352,41 @@ function findEnclosingComponent(document, targetLine) {
             }
         }
 
-        // 2. Arrow function or function expression: e.g. const MyComponent = (...) => { or const useHook = (...) => {
-        // Must NOT be an array literal (= [), plain object (= { without arrow), or primitive
+        // 2. Arrow function or function expression: e.g.
+        // const MyComponent = (...) => {
+        // export const MyComponent: React.FC<Props> = ({ ... }) => {
+        // const MyComponent = forwardRef(...)
+        // const useMyHook = (...) => {
         const varMatch = trimmed.match(
-            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)\s*(?::\s*[^=]+)?\s*=\s*(?:React\.)?(?:memo|forwardRef)?\s*(.*)$/,
+            /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Za-z0-9_$]+)/,
         );
         if (varMatch) {
             const name = varMatch[1];
-            const rest = varMatch[2] || "";
-
-            // Name must be PascalCase or custom hook
             const isPascalOrHook =
                 /^[A-Z][A-Za-z0-9_$]*$/.test(name) ||
                 /^use[A-Z][A-Za-z0-9_$]*$/.test(name);
 
             if (isPascalOrHook) {
-                // Must be an arrow function or function expression, NOT array literal, object, or primitive
-                const isFunctionDef =
-                    /=>/.test(rest) ||
-                    /\bfunction\b/.test(rest) ||
-                    /^\s*\([^)]*\)\s*=>/.test(rest) ||
-                    /^\s*(?:React\.)?(?:memo|forwardRef)\s*\(/.test(trimmed);
-
-                // Check next few lines if the arrow function signature spans multiple lines
-                let foundMultiLineArrow = isFunctionDef;
-                if (!foundMultiLineArrow && !/^\s*\[/.test(rest) && !/^\s*\{/.test(rest)) {
-                    for (let j = i + 1; j < Math.min(document.lineCount, i + 5); j++) {
-                        const nextTrimmed = document.lineAt(j).text.trim();
-                        if (/=>/.test(nextTrimmed) || /\bfunction\b/.test(nextTrimmed)) {
-                            foundMultiLineArrow = true;
-                            break;
-                        }
-                        if (/[;=]/.test(nextTrimmed)) break;
+                // Check if this declaration defines a component or function across one or multiple lines
+                let isComponentDef = false;
+                for (let j = i; j < Math.min(document.lineCount, i + 10); j++) {
+                    const checkLine = document.lineAt(j).text;
+                    if (
+                        /=>/.test(checkLine) ||
+                        /\bfunction\b/.test(checkLine) ||
+                        /\b(?:React\.)?(?:memo|forwardRef)\b/.test(checkLine) ||
+                        /\bReact\.FC\b/.test(checkLine) ||
+                        /\bFC\b/.test(checkLine)
+                    ) {
+                        isComponentDef = true;
+                        break;
+                    }
+                    if (j > i && /^[A-Za-z0-9_$]/.test(checkLine.trim()) && checkLine.includes("=")) {
+                        break;
                     }
                 }
 
-                if (foundMultiLineArrow) {
+                if (isComponentDef) {
                     candidateComponents.push({ startLine: i, type: "arrow" });
                     continue;
                 }
@@ -513,8 +394,23 @@ function findEnclosingComponent(document, targetLine) {
         }
 
         // 3. Anonymous default export arrow component: e.g. export default (...) => {
-        if (/^export\s+default\s+(?:\([^)]*\)|[A-Za-z0-9_$]+)\s*=>/.test(trimmed)) {
+        if (/^export\s+default\s+(?:\([^)]*\)|[A-Za-z0-9_$]+|\s*(?:<[^>]*>)?)\s*=>/.test(trimmed)) {
             candidateComponents.push({ startLine: i, type: "arrow" });
+        }
+    }
+
+    // Fallback: If targetLine wasn't found by top candidates, search upwards from targetLine for enclosing function/component
+    if (candidateComponents.length === 0 || !candidateComponents.some(c => c.startLine <= targetLine)) {
+        for (let i = targetLine; i >= Math.max(0, targetLine - 80); i--) {
+            const line = document.lineAt(i).text.trim();
+            if (
+                /^(?:export\s+)?(?:default\s+)?(?:const|let|var)\s+([A-Z][A-Za-z0-9_$]*|use[A-Z][A-Za-z0-9_$]*)/.test(line) ||
+                /^(?:export\s+)?(?:default\s+)?function(?:\s+([A-Z][A-Za-z0-9_$]*|use[A-Z][A-Za-z0-9_$]*))?/.test(line) ||
+                /^export\s+default\s+/.test(line)
+            ) {
+                candidateComponents.push({ startLine: i, type: "arrow" });
+                break;
+            }
         }
     }
 
@@ -528,34 +424,12 @@ function findEnclosingComponent(document, targetLine) {
     for (const candidate of candidateComponents) {
         let bodyOpenLine = -1;
 
-        if (candidate.type === "function") {
-            // Find closing ')' of parameter list, then '{'
-            let foundParen = false;
-            for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 25); i++) {
-                const lineText = document.lineAt(i).text;
-                if (lineText.includes(")")) foundParen = true;
-                if (foundParen && lineText.includes("{")) {
-                    bodyOpenLine = i;
-                    break;
-                }
-            }
-        } else {
-            // For arrow function, find '=>' then '{'
-            let foundArrow = false;
-            for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 25); i++) {
-                const lineText = document.lineAt(i).text;
-                if (lineText.includes("=>")) {
-                    foundArrow = true;
-                    const arrowIdx = lineText.indexOf("=>");
-                    const after = lineText.slice(arrowIdx + 2);
-                    if (after.includes("{")) {
-                        bodyOpenLine = i;
-                        break;
-                    }
-                } else if (foundArrow && lineText.includes("{")) {
-                    bodyOpenLine = i;
-                    break;
-                }
+        // Search forward from candidate.startLine for the '{' that opens the component body
+        for (let i = candidate.startLine; i < Math.min(document.lineCount, candidate.startLine + 30); i++) {
+            const lineText = document.lineAt(i).text;
+            if (lineText.includes("{")) {
+                bodyOpenLine = i;
+                break;
             }
         }
 
@@ -578,9 +452,11 @@ function findEnclosingComponent(document, targetLine) {
                     inQuote = char;
                 } else if (char === "/" && lineText[j + 1] === "/") {
                     break; // line comment
-                } else if (char === "{") {
-                    depth++;
-                    foundStart = true;
+                } else if (char === "{" || char === "(") {
+                    if (char === "{") {
+                        depth++;
+                        foundStart = true;
+                    }
                 } else if (char === "}") {
                     depth--;
                     if (foundStart && depth === 0) {
@@ -608,11 +484,11 @@ function findEnclosingComponent(document, targetLine) {
         return null;
     }
 
-    // If multiple enclosing components (e.g. subcomponents / custom hooks), pick innermost (smallest range)
+    // If multiple enclosing components, pick innermost (smallest range)
     validEnclosing.sort((a, b) => (a.bodyCloseLine - a.bodyOpenLine) - (b.bodyCloseLine - b.bodyOpenLine));
     const best = validEnclosing[0];
 
-    // Check if component already declares `t`
+    // Check if component already declares `t` or `useTranslation`
     const componentText = document.getText(
         new vscode.Range(
             new vscode.Position(best.headerLine, 0),
@@ -621,17 +497,13 @@ function findEnclosingComponent(document, targetLine) {
     );
 
     const hasT =
-        /\bconst\s*\{\s*(?:[^}]*,\s*)?t(?:\s*,\s*[^}]*|\s*)\}\s*=/.test(componentText) ||
-        /\bconst\s*\[\s*t\s*[\],]/.test(componentText) ||
+        /\bconst\s*\{\s*[^}]*\bt\b[^}]*\}\s*=\s*useTranslation\b/.test(componentText) ||
+        /\bconst\s*\{\s*t\s*\}\s*=/.test(componentText) ||
+        /\bconst\s+t\s*=\s*useTranslation\b/.test(componentText) ||
         /\bconst\s+t\s*=/.test(componentText) ||
-        /\blet\s+t\s*=/.test(componentText) ||
-        /\bfunction\s+t\s*\(/.test(componentText) ||
-        /\buseTranslation\s*\(\s*\)/.test(componentText) ||
-        /\buseTranslations\s*\(\s*\)/.test(componentText) ||
-        /\buseIntl\s*\(\s*\)/.test(componentText) ||
-        /\buseLingui\s*\(\s*\)/.test(componentText);
+        /\buseTranslation\s*\(\s*\)/.test(componentText);
 
-    // Calculate proper indentation for hook insertion
+    // Calculate proper indentation for hook insertion inside component body
     let indent = "";
     if (best.bodyOpenLine + 1 < document.lineCount) {
         const nextLine = document.lineAt(best.bodyOpenLine + 1).text;
@@ -675,7 +547,8 @@ function injectHookIntoComponent(document, edit, componentInfo, hookStatement) {
 }
 
 /**
- * Ensures required imports and hook declarations are present in the document.
+ * Ensures required hook declarations and imports are present in the document.
+ * ONLY injects `useTranslation` import if `useTranslation` hook is actively used or injected.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").WorkspaceEdit} edit
  * @param {number[]} targetLines
@@ -691,19 +564,29 @@ async function ensureTranslationsInDocument(document, edit, targetLines, neededI
     const finalImport = neededImport && neededImport.trim() ? neededImport.trim() : setup.importStatement;
     const finalHook = neededHook && neededHook.trim() ? neededHook.trim() : setup.hookStatement;
 
-    // 1. Inject import statement if missing
-    injectImportStatement(document, edit, finalImport);
+    const docText = document.getText();
+    let hookInjectedOrPresent = /\buseTranslation\s*\(/.test(docText);
 
-    // 2. Inject hook in each unique enclosing component if missing
+    // 1. Inject hook in each unique enclosing component if missing
     if (finalHook && finalHook.trim()) {
         const seenComponents = new Set();
         for (const line of targetLines) {
             const comp = findEnclosingComponent(document, line);
-            if (comp && !comp.hasT && !seenComponents.has(comp.bodyOpenLine)) {
-                seenComponents.add(comp.bodyOpenLine);
-                injectHookIntoComponent(document, edit, comp, finalHook);
+            if (comp) {
+                if (!comp.hasT && !seenComponents.has(comp.bodyOpenLine)) {
+                    seenComponents.add(comp.bodyOpenLine);
+                    injectHookIntoComponent(document, edit, comp, finalHook);
+                    hookInjectedOrPresent = true;
+                } else if (comp.hasT) {
+                    hookInjectedOrPresent = true;
+                }
             }
         }
+    }
+
+    // 2. Inject import statement ONLY IF useTranslation hook is injected or already present
+    if (hookInjectedOrPresent) {
+        injectImportStatement(document, edit, finalImport);
     }
 }
 
@@ -744,21 +627,29 @@ async function localizeWithCopilot(document, range) {
 
         // Fetch dictionary context
         const primaryDictUri = await findPrimaryDictionary();
-        const dictContext = await getDictionaryContext(primaryDictUri);
+        // Format existing dictionary sample & common keys
+        const existingCommonEntries = Object.entries(dictContext.existingKeysMap || {})
+            .filter(([k]) => k.startsWith("common."))
+            .slice(0, 30)
+            .map(([k, v]) => `  "${k}": "${v}"`)
+            .join("\n");
 
         const prompt = [
             `You are an expert internationalization (i18n) and localization assistant in a ${document.languageId} codebase.`,
             `Your task is to localize the hardcoded string: "${targetText}" by providing:`,
             `1. The inline replacement expression (e.g. t('common.accountBlacklisted') or {t('common.accountBlacklisted')})`,
-            `2. The dictionary key path (e.g. "common.accountBlacklisted")`,
+            `2. The dictionary key path in en.json (e.g. "common.accountBlacklisted")`,
             `3. The English text value to add to en.json`,
-            `4. Any missing i18n import statement (e.g. "import { useTranslation } from 'react-i18next';")`,
-            `5. Any missing hook declaration (e.g. "const { t } = useTranslation();")`,
+            `4. The standard i18n import: "import { useTranslation } from 'react-i18next';"`,
+            `5. The standard hook declaration: "const { t } = useTranslation();"`,
             "",
             dictContext.namespaces.length > 0
                 ? `Available dictionary namespaces in en.json: ${dictContext.namespaces.join(", ")}`
                 : "",
-            dictContext.sampleSnippet ? `Sample dictionary structure:\n${dictContext.sampleSnippet}` : "",
+            existingCommonEntries
+                ? `Existing common keys in en.json (reuse these when applicable instead of creating duplicates):\n{\n${existingCommonEntries}\n}`
+                : "",
+            dictContext.sampleSnippet ? `Sample en.json structure:\n${dictContext.sampleSnippet}` : "",
             customPromptHint ? `User instructions: ${customPromptHint}` : "",
             "",
             "Surrounding code context:",
@@ -782,17 +673,18 @@ async function localizeWithCopilot(document, range) {
                 2,
             ),
             "",
-            "Rules & Syntax Placement Guidelines:",
-            "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be placed at the top level of React functional components or custom hooks. NEVER place 'const { t } = useTranslation();' inside object literals, arrays (such as column definitions), loops, helper functions, or at module scope.",
-            "2. If the string is inside a React Component or Hook, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of the enclosing component).",
-            "3. If the string is in a top-level module constant, table columns array, or utility outside any React component (e.g. 'const columns = [...]'), use t('...') in the replacement and provide the appropriate import (e.g. 'import { useTranslation } from 'react-i18next';' or 'import i18n from 'i18next';'), but set neededHook to '' (empty string).",
-            "4. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
-            "5. Replacement Syntax:",
+            "Strict Rules & Guidelines:",
+            "1. Strict Hook Requirement: You MUST strictly use 'const { t } = useTranslation();' from 'react-i18next'. Do NOT use any other hook or format (never use useTranslations, useIntl, or formatMessage).",
+            "2. Common Values & Deduplication: For common reusable action words and UI labels (such as Save, Cancel, Submit, Delete, Edit, Close, Back, Next, Search, Loading, OK, Yes, No, Update, Add, Remove, View, Actions, Status, Success, Error, Details, Filter, Help), you MUST assign a key under the 'common' namespace (e.g. 'common.save', 'common.cancel', 'common.submit', 'common.edit', 'common.delete', 'common.search', 'common.loading', 'common.ok', 'common.close') or reuse an existing key from the dictionary. Do NOT create duplicate keys for common values.",
+            "3. If the string is inside a React Component or Hook, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of the enclosing component).",
+            "4. If the string is in a top-level module constant, table columns array, or utility outside any React component (e.g. 'const columns = [...]'), use t('...') in the replacement and provide neededImport: 'import { useTranslation } from 'react-i18next';', but set neededHook to '' (empty string).",
+            "5. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "6. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "6. Do NOT include surrounding property names or keys in 'replacement'.",
-            "7. Output valid JSON only with NO markdown fences or commentary.",
+            "7. Do NOT include surrounding property names or keys in 'replacement'.",
+            "8. Output valid JSON only with NO markdown fences or commentary.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -831,7 +723,7 @@ async function localizeWithCopilot(document, range) {
 
                 const edit = new vscode.WorkspaceEdit();
 
-                // 1. Ensure missing import and hook are injected
+                // 1. Ensure missing hook and import are injected
                 await ensureTranslationsInDocument(
                     document,
                     edit,
@@ -849,12 +741,12 @@ async function localizeWithCopilot(document, range) {
                     return false;
                 }
 
-                // 3. Auto-update en.json and sibling dictionaries
+                // 3. Auto-update en.json only
                 let dictMessage = "";
                 if (autoUpdateDict && key && value) {
                     const dictRes = await addEntriesToDictionaries([{ key, value }]);
                     if (dictRes.primaryUpdated) {
-                        dictMessage = ` & added key "${key}" to en.json`;
+                        dictMessage = ` & added "${key}" to en.json`;
                     }
                 }
 
@@ -930,14 +822,23 @@ async function localizeAllInDocument(document, diagnostics) {
             .map(item => `[${item.id}] Line ${item.line}: "${item.text}"`)
             .join("\n");
 
+        const existingCommonEntries = Object.entries(dictContext.existingKeysMap || {})
+            .filter(([k]) => k.startsWith("common."))
+            .slice(0, 30)
+            .map(([k, v]) => `  "${k}": "${v}"`)
+            .join("\n");
+
         const prompt = [
             `You are an expert internationalization (i18n) and localization assistant in a ${document.languageId} codebase.`,
-            `Your task is to provide localization replacements for all ${items.length} hardcoded strings detected in the file, along with their dictionary keys, English values, and any missing imports or hooks.`,
+            `Your task is to provide localization replacements for all ${items.length} hardcoded strings detected in the file, along with their dictionary keys for en.json, English values, and standard useTranslation hook declarations.`,
             "",
             dictContext.namespaces.length > 0
                 ? `Available dictionary namespaces in en.json: ${dictContext.namespaces.join(", ")}`
                 : "",
-            dictContext.sampleSnippet ? `Sample dictionary structure:\n${dictContext.sampleSnippet}` : "",
+            existingCommonEntries
+                ? `Existing common keys in en.json (reuse these when applicable instead of creating duplicates):\n{\n${existingCommonEntries}\n}`
+                : "",
+            dictContext.sampleSnippet ? `Sample en.json structure:\n${dictContext.sampleSnippet}` : "",
             customPromptHint ? `User instructions: ${customPromptHint}` : "",
             "",
             "Full file content:",
@@ -967,16 +868,17 @@ async function localizeAllInDocument(document, diagnostics) {
                 2,
             ),
             "",
-            "Rules & Syntax Placement Guidelines:",
-            "1. React Hook Rules: 'useTranslation()' is a React hook and can ONLY be called at the top level of React functional components or custom hooks. NEVER place hook declarations inside object literals, arrays (e.g. table columns), loops, or module-level constants.",
-            "2. If strings are inside React components or hooks, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of enclosing component functions). If all strings are in module-level constants or non-components, set neededHook to '' (empty string).",
-            "3. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
-            "4. Replacement Syntax:",
+            "Strict Rules & Guidelines:",
+            "1. Strict Hook Requirement: You MUST strictly use 'const { t } = useTranslation();' and 'import { useTranslation } from 'react-i18next';'. Do NOT use any other hook or format (never use useTranslations, useIntl, or formatMessage).",
+            "2. Common Values & Deduplication: For common reusable action words and UI labels (such as Save, Cancel, Submit, Delete, Edit, Close, Back, Next, Search, Loading, OK, Yes, No, Update, Add, Remove, View, Actions, Status, Success, Error, Details, Filter, Help), you MUST assign a key under the 'common' namespace (e.g. 'common.save', 'common.cancel', 'common.submit', 'common.edit', 'common.delete', 'common.search', 'common.loading', 'common.ok', 'common.close') or reuse an existing key from the dictionary. Do NOT create duplicate keys for common values.",
+            "3. If strings are inside React components or hooks, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of enclosing component functions). If all strings are in module-level constants or non-components, set neededHook to '' (empty string).",
+            "4. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "5. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "5. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
-            "6. Ensure valid JSON syntax matching the schema.",
+            "6. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
+            "7. Ensure valid JSON syntax matching the schema.",
         ]
             .filter(Boolean)
             .join("\n");

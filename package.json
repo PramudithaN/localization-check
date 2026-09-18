@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -184,7 +184,7 @@
         "localizationCheck.autoUpdateDictionary": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically insert generated translation keys and English values into en.json (and sibling locale files) when Copilot localizes strings."
+          "description": "Automatically insert generated translation keys and English values into en.json when Copilot localizes strings."
         },
         "localizationCheck.autoImportTranslation": {
           "type": "boolean",

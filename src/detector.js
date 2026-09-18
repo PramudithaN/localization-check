@@ -214,9 +214,10 @@ function getCompiledPatterns(rules = null) {
  * Checks if a string value should be ignored (e.g. URLs, colors, IDs, punctuation, identifiers, etc.).
  * @param {string} value
  * @param {ReturnType<typeof getCustomRules>} [rules]
+ * @param {boolean} [isLabelContext]
  * @returns {boolean}
  */
-function ignoredValue(value, rules = null) {
+function ignoredValue(value, rules = null, isLabelContext = false) {
     if (!value || typeof value !== "string") return true;
     const trimmed = value.trim();
     if (trimmed.length < 2) return true;
@@ -234,6 +235,16 @@ function ignoredValue(value, rules = null) {
 
     if (IGNORED_PROGRAMMING_IDENTIFIERS.has(trimmed)) return true;
     if (NOTIFICATION_STATUS_KEYWORDS.has(trimmed.toLowerCase())) return true;
+
+    // In direct UI label/attribute contexts, do not ignore user-facing words
+    if (isLabelContext) {
+        return (
+            /^https?:\/\//i.test(trimmed) ||
+            /^#[0-9a-f]{3,8}$/i.test(trimmed) ||
+            /^[{}$()[\]\\/_.:0-9%+-]+$/.test(trimmed) ||
+            /\$\{/.test(trimmed)
+        );
+    }
 
     return (
         /^[A-Z0-9_./:-]+$/.test(trimmed) ||
@@ -298,11 +309,11 @@ function parseFunctionArguments(argsString) {
 /**
  * Finds the index where a line comment (//) begins, ignoring slashes inside quotes.
  * @param {string} lineText
- * @returns {number}
+ * @returns {number} Index of // or -1 if none
  */
 function getCommentIndexInLine(lineText) {
     let inQuote = null;
-    for (let i = 0; i < lineText.length; i++) {
+    for (let i = 0; i < lineText.length - 1; i++) {
         const char = lineText[i];
         if (inQuote) {
             if (char === inQuote && lineText[i - 1] !== "\\") {
@@ -318,38 +329,35 @@ function getCommentIndexInLine(lineText) {
 }
 
 /**
- * Determines if a colon at the given index in lineText is part of a ternary operator.
- * Returns false if it is an object property key separator, TS type annotation, or switch case.
+ * Verifies whether a colon (:) is actually part of a ternary expression `? ... : ...`
+ * by scanning backwards on the line for an unmatched question mark (?).
  * @param {string} lineText
  * @param {number} colonIndex
- * @returns {boolean}
+ * @returns {boolean} True if part of a ternary expression, False if object property / type annotation
  */
 function isTernaryColon(lineText, colonIndex) {
-    const prefix = lineText.slice(0, colonIndex).trim();
-    if (!prefix) {
-        // Line starts with `:` -> multiline ternary else branch
-        return true;
+    let inQuote = null;
+    let depth = 0;
+    let foundQuestion = false;
+
+    for (let i = 0; i < colonIndex; i++) {
+        const char = lineText[i];
+        if (inQuote) {
+            if (char === inQuote && lineText[i - 1] !== "\\") {
+                inQuote = null;
+            }
+        } else if (char === '"' || char === "'" || char === "`") {
+            inQuote = char;
+        } else if (char === "{" || char === "(" || char === "[") {
+            depth++;
+        } else if (char === "}" || char === ")" || char === "]") {
+            depth = Math.max(0, depth - 1);
+        } else if (char === "?" && lineText[i + 1] !== "?" && lineText[i + 1] !== ".") {
+            foundQuestion = true;
+        }
     }
 
-    // If there is no `?` before this colon on the line, it is not a single-line ternary
-    const qIndex = prefix.indexOf("?");
-    if (qIndex === -1) {
-        return false;
-    }
-
-    // If there is an unclosed `{` after the `?`, the colon is inside an object literal
-    const textAfterQuestion = prefix.slice(qIndex + 1);
-    let openBraces = 0;
-    for (let i = 0; i < textAfterQuestion.length; i++) {
-        if (textAfterQuestion[i] === "{") openBraces++;
-        else if (textAfterQuestion[i] === "}") openBraces--;
-    }
-
-    if (openBraces > 0) {
-        return false;
-    }
-
-    return true;
+    return foundQuestion;
 }
 
 /**
@@ -385,7 +393,8 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
             if (rules.ignoredAttributes.has(attrName.toLowerCase())) continue;
             const value = match[3];
             const quote = match[2];
-            if (!ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+            const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption)$/i.test(attrName);
+            if (!ignoredValue(value, rules, isLabel) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
                 const quotedStr = quote + value + quote;
                 const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
                 const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);
@@ -417,7 +426,7 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
             beforeMatch.trim().length === 0 ||
             /<(?:\/?[A-Za-z][\w.-]*(?:\s+[^>]*)?|>)\s*$/.test(beforeMatch);
 
-        if (hasPrecedingJsxTag && !ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+        if (hasPrecedingJsxTag && !ignoredValue(value, rules, true) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
             const start = match.index + match[0].indexOf(match[1]);
             hits.push({
                 start,
@@ -435,7 +444,8 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
             if (rules.ignoredProperties.has(propName.toLowerCase())) continue;
             const value = match[3];
             const quote = match[2];
-            if (!ignoredValue(value, rules) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+            const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message)$/i.test(propName);
+            if (!ignoredValue(value, rules, isLabelProp) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
                 const quotedStr = quote + value + quote;
                 const quoteStart = match.index + match[0].lastIndexOf(quotedStr);
                 const start = quoteStart !== -1 ? quoteStart : match.index + match[0].lastIndexOf(value);

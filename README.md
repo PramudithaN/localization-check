@@ -17,8 +17,8 @@
 - Scans only files changed in Git or unsaved editor buffers by default.
 - Shows diagnostics as errors by default in the Problems panel.
 - **Direct GitHub Copilot Integration**: Automatically extracts and localizes hardcoded strings using GitHub Copilot via Quick Fix or interactive CodeLens buttons.
-- **Auto-Defines Translation Function**: Detects if `useTranslation` / `t` hook and imports are missing in the active component and inserts them automatically.
-- **Auto-Syncs Translation Dictionaries**: Discovers `en.json` (and sibling locale files like `sin.json` / `es.json`) in the workspace and automatically appends the generated key-value pairs into the dictionary.
+- **Auto-Defines Translation Hook**: Accurately detects missing `const { t } = useTranslation();` hook declarations inside React components and inserts both the hook and `import { useTranslation } from 'react-i18next';` automatically without creating unused imports.
+- **Auto-Syncs Primary Dictionary (`en.json`)**: Discovers or creates `en.json` in the workspace and automatically appends generated key-value pairs, deduplicating common actions (e.g. *Save, Cancel, Submit, Delete, Edit, Search*) into the `common` namespace (`common.save`, `common.cancel`, etc.).
 - **Learn & Flag Hardcoded Patterns**: One-click action to flag previously unflagged JSX tags, attributes, or object properties. Automatically updates local settings and submits an issue to GitHub to improve detection for everyone.
 - **Ignore False Positives**: Easily ignore non-user-facing strings, technical identifiers, or custom attributes across your workspace and report false positive exceptions.
 
@@ -91,8 +91,8 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 - `localizationCheck.enableCodeLens`: displays clickable `Add localization with Copilot` CodeLens buttons above detected hardcoded strings. Default: `true`.
 - `localizationCheck.copilotPromptHint`: optional custom instructions passed to Copilot (e.g. `"Use react-intl formatMessage"` or `"Use i18next"`). Default: `""`.
 - `localizationCheck.dictionaryPath`: optional relative path or glob to primary dictionary file (e.g. `"src/utils/localization/lang-json/en.json"`). Default: `""` (auto-detects `en.json`).
-- `localizationCheck.autoUpdateDictionary`: automatically appends generated translation keys and English values into `en.json` (and sibling locale files). Default: `true`.
-- `localizationCheck.autoImportTranslation`: automatically inserts missing i18n imports (e.g. `useTranslation`) and hook declarations (`const { t } = useTranslation();`) into the file. Default: `true`.
+- `localizationCheck.autoUpdateDictionary`: automatically appends generated translation keys and English values into `en.json`. Default: `true`.
+- `localizationCheck.autoImportTranslation`: automatically inserts missing i18n hook declarations (`const { t } = useTranslation();`) and imports (`import { useTranslation } from 'react-i18next';`) into the file. Default: `true`.
 - `localizationCheck.customAttributes`: array of additional JSX/HTML attribute names to flag as hardcoded strings. Default: `[]`.
 - `localizationCheck.customProperties`: array of additional object property names to flag as hardcoded strings. Default: `[]`.
 - `localizationCheck.customTags`: array of additional JSX/HTML component/tag names whose inner text should be flagged. Default: `[]`.

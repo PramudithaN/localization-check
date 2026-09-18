@@ -135,13 +135,13 @@ async function findSiblingDictionaries(primaryDictionaryUri) {
 }
 
 /**
- * Reads the structure of the primary dictionary to provide namespace hints to Copilot.
+ * Reads the structure of the primary dictionary (en.json) to provide namespace hints and existing key mappings to Copilot.
  * @param {vscode.Uri} dictionaryUri
- * @returns {Promise<{ namespaces: string[], isNested: boolean, sampleSnippet: string }>}
+ * @returns {Promise<{ namespaces: string[], isNested: boolean, sampleSnippet: string, existingKeysMap: Record<string, string> }>}
  */
 async function getDictionaryContext(dictionaryUri) {
     if (!dictionaryUri) {
-        return { namespaces: [], isNested: true, sampleSnippet: "" };
+        return { namespaces: [], isNested: true, sampleSnippet: "", existingKeysMap: {} };
     }
 
     try {
@@ -151,6 +151,21 @@ async function getDictionaryContext(dictionaryUri) {
 
         const keys = Object.keys(json);
         const isNested = keys.some(k => typeof json[k] === "object" && json[k] !== null && !Array.isArray(json[k]));
+
+        // Flatten existing entries (especially 'common' namespace) to assist deduplication
+        const existingKeysMap = {};
+        function flatten(obj, prefix = "") {
+            for (const [k, v] of Object.entries(obj)) {
+                const fullKey = prefix ? `${prefix}.${k}` : k;
+                if (typeof v === "object" && v !== null && !Array.isArray(v)) {
+                    flatten(v, fullKey);
+                } else if (typeof v === "string") {
+                    existingKeysMap[fullKey] = v;
+                }
+            }
+        }
+        flatten(json);
+
         const sampleSnippet = JSON.stringify(
             Object.fromEntries(
                 keys.slice(0, 10).map(k => [
@@ -166,9 +181,10 @@ async function getDictionaryContext(dictionaryUri) {
             namespaces: isNested ? keys : [],
             isNested,
             sampleSnippet,
+            existingKeysMap,
         };
     } catch {
-        return { namespaces: [], isNested: true, sampleSnippet: "" };
+        return { namespaces: [], isNested: true, sampleSnippet: "", existingKeysMap: {} };
     }
 }
 
@@ -192,12 +208,13 @@ function setDeepProperty(targetObj, keyPath, value) {
     }
 
     const lastKey = parts[parts.length - 1];
-    // Only set if not already defined or overwrite with value
     current[lastKey] = value;
 }
 
 /**
- * Adds translation entries to the primary dictionary and sibling dictionaries.
+ * Adds translation entries strictly to the primary en.json dictionary.
+ * Does NOT generate or modify other language dictionaries.
+ * Deduplicates entries so existing keys/values are preserved cleanly.
  * @param {Array<{ key: string, value: string }>} entries
  * @returns {Promise<{ primaryUpdated: boolean, dictionaryUri: vscode.Uri | null, count: number }>}
  */
@@ -214,7 +231,7 @@ async function addEntriesToDictionaries(entries) {
     let updatedCount = 0;
 
     try {
-        // Read & update primary dictionary
+        // Read & update ONLY primary dictionary (en.json)
         let primaryJson = {};
 
         try {
@@ -250,54 +267,9 @@ async function addEntriesToDictionaries(entries) {
         await vscode.workspace.fs.createDirectory(dirUri);
         await vscode.workspace.fs.writeFile(primaryUri, Buffer.from(formatted, "utf-8"));
 
-        // Also update sibling dictionaries (e.g. sin.json, es.json) so keys are present
-        const siblingUris = await findSiblingDictionaries(primaryUri);
-        for (const siblingUri of siblingUris) {
-            try {
-                const sData = await vscode.workspace.fs.readFile(siblingUri);
-                const sJson = JSON.parse(Buffer.from(sData).toString("utf-8"));
-                let siblingChanged = false;
-
-                for (const entry of entries) {
-                    if (entry.key) {
-                        // Check if key already exists in sibling
-                        const parts = entry.key.split(".");
-                        let cur = sJson;
-                        let exists = true;
-                        for (const p of parts) {
-                            if (cur && cur[p] !== undefined) {
-                                cur = cur[p];
-                            } else {
-                                exists = false;
-                                break;
-                            }
-                        }
-
-                        if (!exists) {
-                            if (isFlat) {
-                                sJson[entry.key] = entry.value;
-                            } else {
-                                setDeepProperty(sJson, entry.key, entry.value);
-                            }
-                            siblingChanged = true;
-                        }
-                    }
-                }
-
-                if (siblingChanged) {
-                    await vscode.workspace.fs.writeFile(
-                        siblingUri,
-                        Buffer.from(JSON.stringify(sJson, null, 2) + "\n", "utf-8"),
-                    );
-                }
-            } catch {
-                // Ignore individual sibling failures
-            }
-        }
-
         return { primaryUpdated: true, dictionaryUri: primaryUri, count: updatedCount };
     } catch (err) {
-        console.error("Failed to update dictionary:", err);
+        console.error("Failed to update en.json dictionary:", err);
         return { primaryUpdated: false, dictionaryUri: primaryUri, count: 0 };
     }
 }

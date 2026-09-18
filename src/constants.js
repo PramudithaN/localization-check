@@ -23,6 +23,7 @@ const NOTIFICATION_FUNCTION_PATTERN =
 
 const DEFAULT_ATTRIBUTES = [
     "label",
+    "labelText",
     "title",
     "placeholder",
     "tooltip",
@@ -31,15 +32,27 @@ const DEFAULT_ATTRIBUTES = [
     "description",
     "helperText",
     "buttonText",
+    "headerTitle",
+    "headerText",
+    "floatingLabelText",
+    "confirmText",
+    "cancelText",
+    "okText",
+    "emptyText",
+    "caption",
+    "heading",
 ];
 
 const DEFAULT_OBJECT_PROPERTIES = [
     "label",
+    "labelText",
     "title",
     "placeholder",
     "tooltip",
     "description",
     "header",
+    "headerTitle",
+    "headerText",
     "text",
     "buttonText",
     "helperText",
@@ -50,6 +63,9 @@ const DEFAULT_OBJECT_PROPERTIES = [
     "cancelText",
     "okText",
     "emptyText",
+    "caption",
+    "heading",
+    "badgeText",
 ];
 
 const DEFAULT_TAGS = [
