@@ -27,6 +27,66 @@ const NOTIFICATION_STATUS_KEYWORDS = new Set([
     "secondary",
 ]);
 
+const IGNORED_COLOR_KEYWORDS = new Set([
+    "red",
+    "green",
+    "blue",
+    "yellow",
+    "orange",
+    "purple",
+    "pink",
+    "black",
+    "white",
+    "gray",
+    "grey",
+    "cyan",
+    "magenta",
+    "lime",
+    "gold",
+    "silver",
+    "teal",
+    "navy",
+    "maroon",
+    "olive",
+    "brown",
+    "violet",
+    "indigo",
+    "transparent",
+    "inherit",
+    "currentcolor",
+    "geekblue",
+    "volcano",
+    "processing",
+    "darkred",
+    "darkgreen",
+    "darkblue",
+    "lightblue",
+    "lightgreen",
+    "lightgray",
+    "lightgrey",
+    "darkgray",
+    "darkgrey",
+    "crimson",
+    "coral",
+    "salmon",
+    "turquoise",
+    "aqua",
+    "fuchsia",
+    "azure",
+    "beige",
+    "lavender",
+    "plum",
+    "khaki",
+    "amber",
+    "emerald",
+    "rose",
+    "slate",
+    "zinc",
+    "neutral",
+    "stone",
+    "sky",
+]);
+
 const IGNORED_PROGRAMMING_IDENTIFIERS = new Set([
     "Promise",
     "Observable",
@@ -235,6 +295,9 @@ function ignoredValue(value, rules = null, isLabelContext = false) {
 
     if (IGNORED_PROGRAMMING_IDENTIFIERS.has(trimmed)) return true;
     if (NOTIFICATION_STATUS_KEYWORDS.has(trimmed.toLowerCase())) return true;
+    if (IGNORED_COLOR_KEYWORDS.has(trimmed.toLowerCase())) return true;
+    if (/^(?:rgba?|hsla?)\s*\(/.test(trimmed)) return true;
+    if (/^var\(--[a-zA-Z0-9_-]+\)$/.test(trimmed)) return true;
 
     // In direct UI label/attribute contexts, do not ignore user-facing words
     if (isLabelContext) {
@@ -478,9 +541,13 @@ function findHardcodedRangesInLine(lineText, customRules = null) {
                 continue;
             }
 
-            // Skip if preceded by equality/relational comparison operators (===, !==, ==, !=, <=, >=) or switch case
+            // Skip if preceded by equality/relational comparison operators (===, !==, ==, !=, <=, >=), switch case, or styling attribute prop (e.g. color={...}, bg={...})
             const prefix = lineText.slice(0, condMatch.index).trim();
-            if (/[=!<>]=\s*$/.test(prefix) || /\bcase\s*$/.test(prefix)) {
+            if (
+                /[=!<>]=\s*$/.test(prefix) ||
+                /\bcase\s*$/.test(prefix) ||
+                /\b(?:color|bg|backgroundColor|borderColor|fill|stroke|variant|size|shape|type|target|rel|name|id|key)\s*=\s*\{[^}]*$/.test(prefix)
+            ) {
                 continue;
             }
 
