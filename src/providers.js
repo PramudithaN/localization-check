@@ -27,7 +27,7 @@ class LocalizationCodeActionProvider {
         // Individual quick fixes
         diagnostics.forEach(diagnostic => {
             const action = new vscode.CodeAction(
-                "$(globe) Add localization with Copilot",
+                "Add localization with Copilot",
                 vscode.CodeActionKind.QuickFix,
             );
             action.diagnostics = [diagnostic];
@@ -40,7 +40,7 @@ class LocalizationCodeActionProvider {
             actions.push(action);
 
             const ignoreAction = new vscode.CodeAction(
-                "$(shield) Mark / Ignore as False Positive",
+                "Mark / Ignore as False Positive",
                 vscode.CodeActionKind.QuickFix,
             );
             ignoreAction.diagnostics = [diagnostic];
@@ -52,7 +52,7 @@ class LocalizationCodeActionProvider {
             actions.push(ignoreAction);
 
             const flagAction = new vscode.CodeAction(
-                "$(tag) Flag Pattern as Hardcoded Rule",
+                "Flag Pattern as Hardcoded Rule",
                 vscode.CodeActionKind.QuickFix,
             );
             flagAction.diagnostics = [diagnostic];
@@ -71,7 +71,7 @@ class LocalizationCodeActionProvider {
 
         if (allDocDiagnostics.length > 1) {
             const batchAction = new vscode.CodeAction(
-                `$(sparkle) Localize ALL hardcoded strings in file with Copilot (${allDocDiagnostics.length} items)`,
+                `Localize ALL hardcoded strings in file with Copilot (${allDocDiagnostics.length} items)`,
                 vscode.CodeActionKind.QuickFix,
             );
             batchAction.diagnostics = diagnostics;

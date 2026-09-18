@@ -806,14 +806,111 @@ function findStandaloneJsxTextRange(document, lineNumber, customRules = null) {
     };
 }
 
+/**
+ * Compiles dynamic multiline regex patterns for properties and attributes across line breaks.
+ * @param {ReturnType<typeof getCustomRules>} [rules]
+ * @returns {{
+ *   multilineAttrPattern: RegExp | null,
+ *   multilinePropPattern: RegExp | null,
+ *   rules: ReturnType<typeof getCustomRules>
+ * }}
+ */
+function getCompiledMultilinePatterns(rules = null) {
+    const activeRules = rules || getCustomRules();
+
+    const attrs = Array.from(
+        new Set([...DEFAULT_ATTRIBUTES, ...activeRules.customAttributes])
+    ).filter(attr => !activeRules.ignoredAttributes.has(attr.toLowerCase()));
+
+    const multilineAttrPattern = attrs.length > 0
+        ? new RegExp("\\b(" + attrs.map(escapeRegex).join("|") + ")\\s*=\\s*(?:\\{\\s*)?(?:\\r?\\n\\s*)+(?:(?:\\r?\\n\\s*)*)([\"'`])([^\"'`]+)\\2(?:\\s*\\})?", "gi")
+        : null;
+
+    const props = Array.from(
+        new Set([...DEFAULT_OBJECT_PROPERTIES, ...activeRules.customProperties])
+    ).filter(prop => !activeRules.ignoredProperties.has(prop.toLowerCase()));
+
+    const multilinePropPattern = props.length > 0
+        ? new RegExp("\\b(" + props.map(escapeRegex).join("|") + ")\\s*:\\s*(?:\\r?\\n\\s*)+(?:(?:\\r?\\n\\s*)*)([\"'`])([^\"'`]+)\\2", "gi")
+        : null;
+
+    return {
+        multilineAttrPattern,
+        multilinePropPattern,
+        rules: activeRules,
+    };
+}
+
+/**
+ * Finds hardcoded strings in multiline property and attribute definitions across full document text.
+ * @param {string} fullText
+ * @param {ReturnType<typeof getCustomRules>} [customRules]
+ * @returns {Array<{ startOffset: number, endOffset: number, message: string }>}
+ */
+function findMultilineHardcodedHits(fullText, customRules = null) {
+    const hits = [];
+    if (!fullText || typeof fullText !== "string") return hits;
+
+    const { multilineAttrPattern, multilinePropPattern, rules } = getCompiledMultilinePatterns(customRules);
+
+    let match;
+    if (multilinePropPattern) {
+        multilinePropPattern.lastIndex = 0;
+        while ((match = multilinePropPattern.exec(fullText))) {
+            const propName = match[1];
+            if (rules.ignoredProperties.has(propName.toLowerCase())) continue;
+            const quote = match[2];
+            const value = match[3];
+            const isLabelProp = /^(?:label|labelText|title|placeholder|buttonText|helperText|headerText|headerTitle|caption|text|message)$/i.test(propName);
+            if (!ignoredValue(value, rules, isLabelProp) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const quotedStr = quote + value + quote;
+                const quoteIndex = match.index + match[0].lastIndexOf(quotedStr);
+                const startOffset = quoteIndex !== -1 ? quoteIndex : match.index;
+                const endOffset = startOffset + quotedStr.length;
+                hits.push({
+                    startOffset,
+                    endOffset,
+                    message: `Hardcoded value for "${propName}": "${value}". Use t("...") instead.`,
+                });
+            }
+        }
+    }
+
+    if (multilineAttrPattern) {
+        multilineAttrPattern.lastIndex = 0;
+        while ((match = multilineAttrPattern.exec(fullText))) {
+            const attrName = match[1];
+            if (rules.ignoredAttributes.has(attrName.toLowerCase())) continue;
+            const quote = match[2];
+            const value = match[3];
+            const isLabel = /^(?:label|labelText|aria-label|title|placeholder|buttonText|helperText|headerText|headerTitle|caption)$/i.test(attrName);
+            if (!ignoredValue(value, rules, isLabel) && !/(?:^|\W)(?:i18n\.)?t\s*\(/.test(value)) {
+                const quotedStr = quote + value + quote;
+                const quoteIndex = match.index + match[0].lastIndexOf(quotedStr);
+                const startOffset = quoteIndex !== -1 ? quoteIndex : match.index;
+                const endOffset = startOffset + quotedStr.length;
+                hits.push({
+                    startOffset,
+                    endOffset,
+                    message: `Hardcoded text in "${attrName}" attribute: "${value}". Use t("...") instead.`,
+                });
+            }
+        }
+    }
+
+    return hits;
+}
+
 module.exports = {
     getCustomRules,
     getCompiledPatterns,
+    getCompiledMultilinePatterns,
     escapeRegex,
     ignoredValue,
     parseFunctionArguments,
     findHardcodedRangesInLine,
     findNotificationHits,
+    findMultilineHardcodedHits,
     getNearestNonEmptyLine,
     isJsxBoundary,
     isInsideJsxOpeningTag,
