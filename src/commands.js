@@ -251,7 +251,10 @@ async function handleLocalizeWithCopilot(documentOrUri, rawRange, diagnosticsCol
     }
 
     range = adjustRangeForQuotes(document, range);
-    await localizeWithCopilot(document, range);
+    const success = await localizeWithCopilot(document, range);
+    if (success && diagnosticsCollection) {
+        scanDocument(document, diagnosticsCollection, true);
+    }
 }
 
 /**
@@ -271,7 +274,7 @@ async function handleLocalizeAllInFile(diagnosticsCollection, documentOrUri) {
     );
 
     if (diagnostics.length === 0) {
-        scanDocument(document, diagnosticsCollection);
+        scanDocument(document, diagnosticsCollection, true);
         diagnostics = (diagnosticsCollection.get(document.uri) || []).filter(
             d => d.source === SOURCE_NAME,
         );
@@ -282,7 +285,10 @@ async function handleLocalizeAllInFile(diagnosticsCollection, documentOrUri) {
         return;
     }
 
-    await localizeAllInDocument(document, diagnostics);
+    const success = await localizeAllInDocument(document, diagnostics);
+    if (success && diagnosticsCollection) {
+        scanDocument(document, diagnosticsCollection, true);
+    }
 }
 
 /**

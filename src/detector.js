@@ -267,7 +267,7 @@ function findHardcodedHits(text, filename = "document.tsx", customRules = null) 
             return findFallbackRegexHits(text, rules);
         }
 
-        return findHardcodedHitsInAst(ast, rules);
+        return findHardcodedHitsInAst(ast, rules, text);
     } catch (err) {
         return findFallbackRegexHits(text, rules);
     }

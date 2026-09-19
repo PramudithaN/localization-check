@@ -323,4 +323,85 @@ export function NotifyUser() {
             assert.ok(values.includes("Profile saved successfully"), "Should detect message.success");
         });
     });
+
+    describe("False Positive Reports & Ignored Custom Rules", () => {
+        it("ignores path properties and route template literals e.g. path: `/${CONFIG.tenant}/settings/schedule-event`", () => {
+            const code = `
+const routeConfig = {
+    path: \`/\${CONFIG.tenant}/settings/schedule-event\`,
+    url: \`/api/v1/events/\${eventId}\`,
+    pathname: \`/dashboard/\${userId}\`,
+    href: \`https://example.com/settings/\${tab}\`,
+};
+`;
+            const { ast } = parseSource(code, "routes.tsx");
+            assert.ok(ast);
+
+            const hits = findHardcodedHitsInAst(ast, null, code);
+            assert.strictEqual(hits.length, 0, "Technical path/url properties and route template literals must not be flagged");
+        });
+
+        it("ignores template literals explicitly added to ignoredWords e.g. Sub Product - ${formData['subProductName']}...", () => {
+            const code = `
+const message = \`Sub Product - \${formData["subProductName"]} is already exist for Product - \${formData["productName"]}\`;
+`;
+            const { ast } = parseSource(code, "message.tsx");
+            assert.ok(ast);
+
+            const customRules = {
+                customAttributes: [],
+                customProperties: [],
+                customTags: [],
+                customWords: new Set(),
+                ignoredWords: new Set([
+                    'Sub Product - ${formData["subProductName"]} is already exist for Product - ${formData["productName"]}',
+                ]),
+                ignoredAttributes: new Set(),
+                ignoredProperties: new Set(),
+                ignoredTags: new Set(),
+                minimumConfidence: "high",
+            };
+
+            const hits = findHardcodedHitsInAst(ast, customRules, code);
+            assert.strictEqual(hits.length, 0, "Template literal in ignoredWords must not be flagged");
+        });
+
+        it("ignores properties when specified in ignoredProperties", () => {
+            const code = `
+const item = {
+    path: "/custom/path/value",
+    customField: "Custom technical key",
+};
+`;
+            const { ast } = parseSource(code, "config.ts");
+            assert.ok(ast);
+
+            const customRules = {
+                customAttributes: [],
+                customProperties: ["customField"],
+                customTags: [],
+                customWords: new Set(),
+                ignoredWords: new Set(),
+                ignoredAttributes: new Set(),
+                ignoredProperties: new Set(["customfield", "path"]),
+                ignoredTags: new Set(),
+                minimumConfidence: "high",
+            };
+
+            const hits = findHardcodedHitsInAst(ast, customRules, code);
+            assert.strictEqual(hits.length, 0, "Properties in ignoredProperties must not be flagged");
+        });
+
+        it("inspects template literal context correctly without quote corruption", () => {
+            const code = `const msg = \`Sub Product - \${formData["subProductName"]} is already exist\`;`;
+            const { ast } = parseSource(code, "context.tsx");
+            assert.ok(ast);
+
+            const context = inspectCodeContextAtPosition(ast, 0, 15, code);
+            assert.strictEqual(
+                context.selectedText,
+                'Sub Product - ${formData["subProductName"]} is already exist'
+            );
+        });
+    });
 });

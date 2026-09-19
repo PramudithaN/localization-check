@@ -157,25 +157,26 @@ function inspectCodeContext(document, rangeOrPos, diagnostics) {
         : (rangeOrPos ? rangeOrPos.start : new vscode.Position(0, 0));
 
     const lineText = document.lineAt(pos.line).text;
+    const fullText = document.getText();
     let selectedText = (rangeOrPos instanceof vscode.Range && !rangeOrPos.isEmpty)
         ? document.getText(rangeOrPos).trim()
         : "";
 
-    // If selection is empty, check for a string under cursor
-    if (!selectedText) {
-        const quoteRegex = /(["'`])([^"'`]+)\1/g;
-        let qm;
-        while ((qm = quoteRegex.exec(lineText))) {
-            const start = qm.index;
-            const end = start + qm[0].length;
-            if (pos.character >= start && pos.character <= end) {
-                selectedText = qm[2].trim();
-                break;
-            }
-        }
+    // 1. Inspect JSX Tag, Attribute, Property, and Text using AST parser first when available
+    let tag = null;
+    let attribute = null;
+    let property = null;
+
+    const { ast } = parseSource(fullText, document.fileName);
+    if (ast) {
+        const astContext = inspectCodeContextAtPosition(ast, pos.line, pos.character, fullText);
+        if (astContext.tag) tag = astContext.tag;
+        if (astContext.attribute) attribute = astContext.attribute;
+        if (astContext.property) property = astContext.property;
+        if (astContext.selectedText && !selectedText) selectedText = astContext.selectedText;
     }
 
-    // Check if a diagnostic on current line has detected text
+    // 2. Check if a diagnostic on current line has detected text
     if (!selectedText && diagnostics) {
         const docDiags = (diagnostics.get(document.uri) || []).filter(
             d => d.source === SOURCE_NAME,
@@ -188,18 +189,28 @@ function inspectCodeContext(document, rangeOrPos, diagnostics) {
         }
     }
 
-    // Inspect JSX Tag, Attribute, and Property using AST parser when available
-    let tag = null;
-    let attribute = null;
-    let property = null;
-
-    const { ast } = parseSource(document.getText(), document.fileName);
-    if (ast) {
-        const astContext = inspectCodeContextAtPosition(ast, pos.line, pos.character);
-        if (astContext.tag) tag = astContext.tag;
-        if (astContext.attribute) attribute = astContext.attribute;
-        if (astContext.property) property = astContext.property;
-        if (astContext.selectedText && !selectedText) selectedText = astContext.selectedText;
+    // 3. Fallback: check for a string or template literal on current line
+    if (!selectedText) {
+        const templateMatch = /`([^`]+)`/.exec(lineText);
+        if (templateMatch) {
+            const start = templateMatch.index;
+            const end = start + templateMatch[0].length;
+            if (pos.character >= start && pos.character <= end) {
+                selectedText = templateMatch[1].trim();
+            }
+        }
+        if (!selectedText) {
+            const quoteRegex = /(["'])([^"']+)\1/g;
+            let qm;
+            while ((qm = quoteRegex.exec(lineText))) {
+                const start = qm.index;
+                const end = start + qm[0].length;
+                if (pos.character >= start && pos.character <= end) {
+                    selectedText = qm[2].trim();
+                    break;
+                }
+            }
+        }
     }
 
     if (!tag) {

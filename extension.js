@@ -111,9 +111,9 @@ function activate(context) {
             }
             clearTimeout(debounceTimer);
             debounceTimer = setTimeout(() => {
-                scanDocument(event.document, diagnostics);
+                scanDocument(event.document, diagnostics, true);
                 codeLensProvider.refresh();
-            }, 400);
+            }, 300);
         }),
     );
 

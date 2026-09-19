@@ -92,6 +92,10 @@ const STYLING_OR_TECHNICAL_PROPS = new Set([
     "color", "bg", "backgroundColor", "borderColor", "fill", "stroke",
     "variant", "size", "shape", "type", "target", "rel", "name", "id", "key",
     "className", "style", "data-testid", "testId", "align", "justify",
+    "path", "pathname", "url", "href", "src", "route", "to", "endpoint",
+    "redirect", "action", "method", "pattern", "regex", "format", "field",
+    "dataIndex", "accessor", "code", "icon", "iconName", "viewBox", "as",
+    "component", "tag", "width", "height", "mode", "position", "placement",
 ]);
 
 /**
@@ -138,6 +142,8 @@ function ignoredValue(value, rules = null, isLabelContext = false) {
         /^https?:\/\//i.test(trimmed) ||
         /^#[0-9a-f]{3,8}$/i.test(trimmed) ||
         /^[{}$()[\]\\/_.:0-9%+-]+$/.test(trimmed) ||
+        /^\/(?:[a-zA-Z0-9_.~%!$&'*+;=:@/-]|\$\{[^}]+\})+(?:\?.*)?$/.test(trimmed) ||
+        /^\.\.?\/[a-zA-Z0-9_.~%!$&'*+;=:@/{}()[\],-]+$/.test(trimmed) ||
         // camelCase identifiers without whitespace
         /^[a-z]+(?:[A-Z0-9][a-z0-9]*)+$/.test(trimmed) ||
         /^[a-z][a-zA-Z0-9]*(Id|ID|Code|No|Number|Type|Key|Name|Value|Url|URL|Uri|URI|Path|Ref|Index|Status)$/.test(trimmed) ||
@@ -149,6 +155,47 @@ function ignoredValue(value, rules = null, isLabelContext = false) {
         /^[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)+$/.test(trimmed) ||
         /\$\{/.test(trimmed)
     );
+}
+
+/**
+ * Determines whether a template literal should be ignored based on rules and ignored words.
+ * @param {string} preview
+ * @param {string} rawSnippet
+ * @param {any[]} quasis
+ * @param {any} [rules]
+ * @returns {boolean}
+ */
+function isTemplateLiteralIgnored(preview, rawSnippet, quasis, rules) {
+    if (!rules) return false;
+    const trimmedPreview = preview ? preview.trim() : "";
+    if (trimmedPreview && ignoredValue(trimmedPreview, rules)) return true;
+    if (rawSnippet && ignoredValue(rawSnippet, rules)) return true;
+
+    if (rules.ignoredWords && rules.ignoredWords.size > 0) {
+        const ignored = rules.ignoredWords;
+        if (ignored.has(trimmedPreview) || (rawSnippet && ignored.has(rawSnippet))) {
+            return true;
+        }
+        for (const q of quasis) {
+            const qText = (q.value ? (q.value.raw || q.value.cooked || "") : "").trim();
+            if (qText.length >= 2 && ignored.has(qText)) {
+                return true;
+            }
+        }
+        for (const word of ignored) {
+            if (!word) continue;
+            const w = word.trim();
+            if (!w) continue;
+            if (rawSnippet && (rawSnippet === w || rawSnippet.includes(w) || w.includes(rawSnippet))) {
+                return true;
+            }
+            if (trimmedPreview && (trimmedPreview === w || trimmedPreview.includes(w) || w.includes(trimmedPreview))) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -296,6 +343,7 @@ function calculateSubTextLoc(loc, rawText, subText) {
  * Traverses an AST and detects all hardcoded strings.
  * @param {any} ast
  * @param {any} [rules]
+ * @param {string} [code]
  * @returns {Array<{
  *   startLine: number,
  *   startCol: number,
@@ -309,7 +357,7 @@ function calculateSubTextLoc(loc, rawText, subText) {
  *   type: string
  * }>}
  */
-function findHardcodedHitsInAst(ast, rules = null) {
+function findHardcodedHitsInAst(ast, rules = null, code = "") {
     const hits = [];
     if (!ast) return hits;
 
@@ -640,23 +688,107 @@ function findHardcodedHitsInAst(ast, rules = null) {
                 return;
             }
 
-            // Skip technical/styling variable declarations (e.g. const className = `...`)
+            // Skip technical/styling variable declarations (e.g. const className = `...`, const path = `...`, const url = `...`)
             const varDecl = path.findParent(p => p.isVariableDeclarator());
             if (varDecl && varDecl.node.id && varDecl.node.id.name) {
                 const varName = varDecl.node.id.name.toLowerCase();
-                if (/^(?:classname|classes|styles|style|url|href|src|path|id|key|color|theme|icon)$/i.test(varName)) {
+                if (/^(?:classname|classes|styles|style|url|href|src|path|pathname|route|endpoint|id|key|color|theme|icon)$/i.test(varName)) {
                     return;
                 }
             }
 
-            // Skip technical/styling JSX attributes (e.g. className={`badge-${count}`})
+            // Skip technical/styling JSX attributes (e.g. className={`badge-${count}`}, href={`...`})
             const parentAttr = path.findParent(p => p.isJSXAttribute());
-            if (parentAttr && parentAttr.node.name && STYLING_OR_TECHNICAL_PROPS.has(parentAttr.node.name.name)) {
+            if (parentAttr && parentAttr.node.name) {
+                const attrName = parentAttr.node.name.name || "";
+                if (
+                    ignoredAttrs.has(attrName.toLowerCase()) ||
+                    STYLING_OR_TECHNICAL_PROPS.has(attrName) ||
+                    STYLING_OR_TECHNICAL_PROPS.has(attrName.toLowerCase())
+                ) {
+                    return;
+                }
+            }
+
+            // Skip technical / non-UI Object Properties (e.g. { path: `/${tenant}/settings`, url: `...`, href: `...` })
+            const parentProp = path.findParent(p => p.isObjectProperty());
+            if (parentProp && parentProp.node.value === path.node) {
+                const keyNode = parentProp.node.key;
+                const propName = keyNode.type === "Identifier" ? keyNode.name : (keyNode.type === "StringLiteral" ? keyNode.value : "");
+                if (propName) {
+                    const lowerProp = propName.toLowerCase();
+                    if (
+                        ignoredProps.has(lowerProp) ||
+                        STYLING_OR_TECHNICAL_PROPS.has(propName) ||
+                        STYLING_OR_TECHNICAL_PROPS.has(lowerProp) ||
+                        !activeProps.has(lowerProp)
+                    ) {
+                        return;
+                    }
+                }
+            }
+
+            // Skip technical function calls (e.g. console.log, fetch, axios, router.push, history.push, path.join)
+            const parentCall = path.findParent(p => p.isCallExpression());
+            if (parentCall) {
+                const { fnName, objName, isNotification } = getCallDetails(parentCall.node);
+                if (!isNotification) {
+                    const fullCall = (objName ? `${objName}.${fnName}` : fnName).toLowerCase();
+                    if (/^(?:console\.(?:log|warn|error|info|debug|trace)|fetch|axios(?:\.[a-z]+)?|navigate|router\.(?:push|replace|prefetch)|history\.(?:push|replace)|path\.(?:join|resolve)|require|import)$/i.test(fullCall)) {
+                        return;
+                    }
+                }
+            }
+
+            // Check quasis and expressions
+            const quasis = path.node.quasis || [];
+            const expressions = path.node.expressions || [];
+
+            // Build a preview string with placeholders: e.g. "Welcome back, {name}!"
+            let preview = "";
+            for (let i = 0; i < quasis.length; i++) {
+                const qText = quasis[i].value ? (quasis[i].value.raw || quasis[i].value.cooked || "") : "";
+                preview += qText;
+                if (i < expressions.length) {
+                    const exp = expressions[i];
+                    let expName = "val";
+                    if (exp.type === "Identifier") {
+                        expName = exp.name;
+                    } else if (exp.type === "MemberExpression") {
+                        if (exp.property) {
+                            if (exp.property.type === "Identifier") {
+                                expName = exp.property.name;
+                            } else if (exp.property.type === "StringLiteral") {
+                                expName = exp.property.value;
+                            }
+                        }
+                    }
+                    preview += `{${expName}}`;
+                }
+            }
+
+            const trimmedPreview = preview.trim();
+            const rawSnippet = (code && typeof path.node.start === "number" && typeof path.node.end === "number")
+                ? code.slice(path.node.start, path.node.end).replace(/^`|`$/g, "").trim()
+                : "";
+
+            // Skip URLs, route paths, relative paths, CSS variables, and identifier patterns
+            if (
+                /^https?:\/\//i.test(trimmedPreview) ||
+                /^var\(--/i.test(trimmedPreview) ||
+                /^\/(?:\{[a-zA-Z0-9_$]+\}|[a-zA-Z0-9_.~%!$&'*+;=:@/-])+(?:\?.*)?$/.test(trimmedPreview) ||
+                /^\.\.?\/[a-zA-Z0-9_.~%!$&'*+;=:@/{}()[\],-]+$/.test(trimmedPreview) ||
+                /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+/.test(trimmedPreview) ||
+                /^(?:btn|badge|item|col|row|icon|fa|lucide|text|bg|color)-/i.test(trimmedPreview)
+            ) {
                 return;
             }
 
-            // Check quasis (static text parts)
-            const quasis = path.node.quasis || [];
+            // Check if ignored by user rules
+            if (isTemplateLiteralIgnored(trimmedPreview, rawSnippet, quasis, rules)) {
+                return;
+            }
+
             const hasMeaningfulText = quasis.some(q => {
                 const raw = q.value ? (q.value.raw || q.value.cooked || "") : "";
                 const text = raw.trim();
@@ -670,30 +802,6 @@ function findHardcodedHitsInAst(ast, rules = null) {
             });
 
             if (hasMeaningfulText && !isInsideLocalizationCall(path)) {
-                // Build a preview string with placeholders: e.g. "Welcome back, {name}!"
-                let preview = "";
-                const expressions = path.node.expressions || [];
-                for (let i = 0; i < quasis.length; i++) {
-                    const qText = quasis[i].value ? (quasis[i].value.raw || quasis[i].value.cooked || "") : "";
-                    preview += qText;
-                    if (i < expressions.length) {
-                        const exp = expressions[i];
-                        const expName = exp.name || (exp.type === "MemberExpression" && exp.property ? exp.property.name : "val");
-                        preview += `{${expName}}`;
-                    }
-                }
-
-                const trimmedPreview = preview.trim();
-                if (
-                    /^https?:\/\//i.test(trimmedPreview) ||
-                    /^var\(--/i.test(trimmedPreview) ||
-                    /^[a-zA-Z0-9_-]+\/[a-zA-Z0-9_.-]+/.test(trimmedPreview) ||
-                    /^(?:btn|badge|item|col|row|icon|fa|lucide|text|bg|color)-/i.test(trimmedPreview) ||
-                    ignoredValue(trimmedPreview, rules)
-                ) {
-                    return;
-                }
-
                 const loc = path.node.loc;
                 hits.push({
                     startLine: loc.start.line - 1,
@@ -886,6 +994,7 @@ function findEnclosingComponentInAst(ast, targetLine) {
  * @param {any} ast
  * @param {number} line - 0-indexed line number
  * @param {number} character - 0-indexed column number
+ * @param {string} [code]
  * @returns {{
  *   tag: string | null,
  *   attribute: string | null,
@@ -894,7 +1003,7 @@ function findEnclosingComponentInAst(ast, targetLine) {
  *   nodeType: string | null
  * }}
  */
-function inspectCodeContextAtPosition(ast, line, character) {
+function inspectCodeContextAtPosition(ast, line, character, code = "") {
     const result = {
         tag: null,
         attribute: null,
@@ -935,6 +1044,33 @@ function inspectCodeContextAtPosition(ast, line, character) {
                     result.selectedText = path.node.value;
                 } else if (path.isJSXText()) {
                     result.selectedText = path.node.value.trim();
+                } else if (path.isTemplateLiteral()) {
+                    if (code && typeof path.node.start === "number" && typeof path.node.end === "number") {
+                        const snippet = code.slice(path.node.start, path.node.end);
+                        result.selectedText = snippet.replace(/^`|`$/g, "").trim();
+                    } else {
+                        const expressions = path.node.expressions || [];
+                        const quasis = path.node.quasis || [];
+                        let raw = "";
+                        for (let i = 0; i < quasis.length; i++) {
+                            raw += quasis[i].value ? (quasis[i].value.raw || quasis[i].value.cooked || "") : "";
+                            if (i < expressions.length) {
+                                const exp = expressions[i];
+                                let expName = "val";
+                                if (exp.type === "Identifier") {
+                                    expName = exp.name;
+                                } else if (exp.type === "MemberExpression") {
+                                    if (exp.property && exp.property.type === "Identifier") {
+                                        expName = exp.property.name;
+                                    } else if (exp.property && exp.property.type === "StringLiteral") {
+                                        expName = exp.property.value;
+                                    }
+                                }
+                                raw += `{${expName}}`;
+                            }
+                        }
+                        result.selectedText = raw.trim();
+                    }
                 }
             }
         },
