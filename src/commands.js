@@ -303,6 +303,12 @@ async function handleFlagHardcodedCommand(diagnosticsCollection, documentOrUri, 
  * @param {import("vscode").TextDocument | import("vscode").Uri | any} [documentOrUri]
  * @param {import("vscode").Range | any} [rawRange]
  */
+async function handleMarkFalsePositiveCommand(diagnosticsCollection, documentOrUri, rawRange) {
+    const document = await resolveDocument(documentOrUri);
+    const range = resolveRange(rawRange);
+    await handleMarkAsFalsePositive(diagnosticsCollection, document, range);
+}
+
 /**
  * Handles the "Find Unused Translation Keys" command.
  * @param {import("vscode").OutputChannel} outputChannel

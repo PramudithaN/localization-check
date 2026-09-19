@@ -261,12 +261,16 @@ function findHardcodedHits(text, filename = "document.tsx", customRules = null) 
     if (!text || typeof text !== "string") return [];
     const rules = customRules || getCustomRules();
 
-    const { ast, error } = parseSource(text, filename);
-    if (!ast) {
+    try {
+        const { ast, error } = parseSource(text, filename);
+        if (!ast) {
+            return findFallbackRegexHits(text, rules);
+        }
+
+        return findHardcodedHitsInAst(ast, rules);
+    } catch (err) {
         return findFallbackRegexHits(text, rules);
     }
-
-    return findHardcodedHitsInAst(ast, rules);
 }
 
 module.exports = {
