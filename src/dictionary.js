@@ -106,33 +106,6 @@ async function ensurePrimaryDictionary() {
     }
 }
 
-/**
- * Finds all sibling locale JSON files in the same directory as the primary dictionary (e.g., sin.json, es.json, fr.json).
- * @param {vscode.Uri} primaryDictionaryUri
- * @returns {Promise<vscode.Uri[]>}
- */
-async function findSiblingDictionaries(primaryDictionaryUri) {
-    try {
-        const dirUri = vscode.Uri.file(path.dirname(primaryDictionaryUri.fsPath));
-        const dirEntries = await vscode.workspace.fs.readDirectory(dirUri);
-        const siblings = [];
-
-        for (const [name, type] of dirEntries) {
-            if (
-                type === vscode.FileType.File &&
-                name.endsWith(".json") &&
-                name !== path.basename(primaryDictionaryUri.fsPath) &&
-                !name.startsWith("package") &&
-                !name.startsWith("tsconfig")
-            ) {
-                siblings.push(vscode.Uri.joinPath(dirUri, name));
-            }
-        }
-        return siblings;
-    } catch {
-        return [];
-    }
-}
 
 /**
  * Reads the structure of the primary dictionary (en.json) to provide namespace hints and existing key mappings to Copilot.
@@ -352,7 +325,6 @@ async function findUnusedDictionaryKeys(outputChannel) {
 module.exports = {
     findPrimaryDictionary,
     ensurePrimaryDictionary,
-    findSiblingDictionaries,
     getDictionaryContext,
     setDeepProperty,
     addEntriesToDictionaries,
