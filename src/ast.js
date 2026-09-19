@@ -1079,6 +1079,117 @@ function inspectCodeContextAtPosition(ast, line, character, code = "") {
     return result;
 }
 
+/**
+ * Finds top-level static schema, configuration, or object declarations enclosing a given line.
+ * @param {any} ast
+ * @param {number} targetLine - 0-indexed line number
+ * @param {string} [code]
+ * @returns {{
+ *   type: "schema_object",
+ *   varName: string,
+ *   hookName: string,
+ *   typeAnnotation: string,
+ *   isExport: boolean,
+ *   kind: string,
+ *   headerStartLine: number,
+ *   headerStartCol: number,
+ *   initStartLine: number,
+ *   initStartCol: number,
+ *   initEndLine: number,
+ *   initEndCol: number,
+ *   declEndLine: number,
+ *   declEndCol: number,
+ *   indent: string
+ * } | null}
+ */
+function findEnclosingSchemaInAst(ast, targetLine, code = "") {
+    if (!ast) return null;
+
+    let candidate = null;
+    let innermostSpan = Infinity;
+
+    traverse(ast, {
+        VariableDeclarator(path) {
+            const init = path.node.init;
+            if (!init || (init.type !== "ObjectExpression" && init.type !== "ArrayExpression")) {
+                return;
+            }
+
+            // Only check top-level or module-level variable declarations
+            const parentDecl = path.parentPath;
+            if (!parentDecl || (!parentDecl.parentPath.isProgram() && !parentDecl.parentPath.isExportNamedDeclaration())) {
+                return;
+            }
+
+            const loc = path.node.loc;
+            if (!loc) return;
+
+            const startLine = loc.start.line - 1;
+            const endLine = loc.end.line - 1;
+
+            if (targetLine < startLine || targetLine > endLine) {
+                return;
+            }
+
+            const span = endLine - startLine;
+            if (span < innermostSpan) {
+                innermostSpan = span;
+
+                let varName = "";
+                let typeAnnotation = "";
+
+                if (path.node.id) {
+                    if (path.node.id.type === "Identifier") {
+                        varName = path.node.id.name;
+                        if (path.node.id.typeAnnotation) {
+                            if (code && typeof path.node.id.typeAnnotation.start === "number" && typeof path.node.id.typeAnnotation.end === "number") {
+                                typeAnnotation = code.slice(path.node.id.typeAnnotation.start, path.node.id.typeAnnotation.end).trim();
+                            }
+                        }
+                    }
+                }
+
+                if (!varName) return;
+
+                // Derive hook name: e.g. TradingTypeSchema -> useTradingTypeSchema
+                let hookName = varName;
+                if (!/^use[A-Z]/.test(hookName)) {
+                    if (hookName.startsWith("use")) {
+                        hookName = "use" + hookName.slice(3, 4).toUpperCase() + hookName.slice(4);
+                    } else {
+                        hookName = "use" + hookName.charAt(0).toUpperCase() + hookName.slice(1);
+                    }
+                }
+
+                const isExport = Boolean(parentDecl.parentPath.isExportNamedDeclaration());
+                const declNode = isExport ? parentDecl.parentPath.node : parentDecl.node;
+                const declLoc = declNode.loc || loc;
+                const initLoc = init.loc || loc;
+
+                candidate = {
+                    type: "schema_object",
+                    varName,
+                    hookName,
+                    typeAnnotation,
+                    isExport,
+                    kind: parentDecl.node.kind || "const",
+                    headerStartLine: declLoc.start.line - 1,
+                    headerStartCol: declLoc.start.column,
+                    initStartLine: initLoc.start.line - 1,
+                    initStartCol: initLoc.start.column,
+                    initEndLine: initLoc.end.line - 1,
+                    initEndCol: initLoc.end.column,
+                    declEndLine: declLoc.end.line - 1,
+                    declEndCol: declLoc.end.column,
+                    indent: "    ",
+                };
+            }
+        },
+    });
+
+    return candidate;
+}
+
 module.exports = {
     NOTIFICATION_STATUS_KEYWORDS,
     NOTIFICATION_FUNCTION_NAMES,
@@ -1090,5 +1201,6 @@ module.exports = {
     getCallFunctionName,
     findHardcodedHitsInAst,
     findEnclosingComponentInAst,
+    findEnclosingSchemaInAst,
     inspectCodeContextAtPosition,
 };

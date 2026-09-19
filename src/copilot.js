@@ -1,6 +1,10 @@
 const vscode = require("vscode");
 const { CONFIG_SECTION } = require("./constants");
-const { parseSource, findEnclosingComponentInAst } = require("./ast");
+const {
+    parseSource,
+    findEnclosingComponentInAst,
+    findEnclosingSchemaInAst,
+} = require("./ast");
 const {
     findPrimaryDictionary,
     ensurePrimaryDictionary,
@@ -429,7 +433,8 @@ function injectHookIntoComponent(document, edit, componentInfo, hookStatement) {
 
 /**
  * Ensures required hook declarations and imports are present in the document.
- * ONLY injects `useTranslation` import if `useTranslation` hook is actively used or injected.
+ * ONLY injects `useTranslation` import if `useTranslation` hook is actively used, injected,
+ * or when a top-level static schema is converted to a custom hook.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").WorkspaceEdit} edit
  * @param {number[]} targetLines
@@ -446,12 +451,15 @@ async function ensureTranslationsInDocument(document, edit, targetLines, neededI
     const finalHook = neededHook && neededHook.trim() ? neededHook.trim() : setup.hookStatement;
 
     const docText = document.getText();
+    const { ast } = parseSource(docText, document.fileName);
     let hookInjectedOrPresent = /\buseTranslation\s*\(/.test(docText);
 
-    // 1. Inject hook in each unique enclosing component if missing
     if (finalHook && finalHook.trim()) {
         const seenComponents = new Set();
+        const seenSchemas = new Set();
+
         for (const line of targetLines) {
+            // 1. Check if inside an existing React Component or Hook function
             const comp = findEnclosingComponent(document, line);
             if (comp) {
                 if (!comp.hasT && !seenComponents.has(comp.bodyOpenLine)) {
@@ -461,11 +469,41 @@ async function ensureTranslationsInDocument(document, edit, targetLines, neededI
                 } else if (comp.hasT) {
                     hookInjectedOrPresent = true;
                 }
+                continue;
+            }
+
+            // 2. Check if inside a top-level static schema / config object
+            if (ast) {
+                const schema = findEnclosingSchemaInAst(ast, line, docText);
+                if (schema && !seenSchemas.has(schema.varName)) {
+                    seenSchemas.add(schema.varName);
+
+                    const exportPrefix = schema.isExport ? "export " : "";
+                    const rawType = schema.typeAnnotation
+                        ? (schema.typeAnnotation.startsWith(":") ? schema.typeAnnotation.slice(1).trim() : schema.typeAnnotation.trim())
+                        : "";
+                    const returnTypeStr = rawType ? `(): ${rawType} =>` : "() =>";
+
+                    const newHeader = `${exportPrefix}${schema.kind} ${schema.hookName} = ${returnTypeStr} {\n${schema.indent}${finalHook.trim()}\n\n${schema.indent}return `;
+
+                    const headerRange = new vscode.Range(
+                        schema.headerStartLine,
+                        schema.headerStartCol,
+                        schema.initStartLine,
+                        schema.initStartCol,
+                    );
+                    edit.replace(document.uri, headerRange, newHeader);
+
+                    const endPos = new vscode.Position(schema.declEndLine, schema.declEndCol);
+                    edit.insert(document.uri, endPos, "\n};");
+
+                    hookInjectedOrPresent = true;
+                }
             }
         }
     }
 
-    // 2. Inject import statement ONLY IF useTranslation hook is injected or already present
+    // 3. Inject import statement ONLY IF useTranslation hook is injected or already present
     if (hookInjectedOrPresent) {
         injectImportStatement(document, edit, finalImport);
     }

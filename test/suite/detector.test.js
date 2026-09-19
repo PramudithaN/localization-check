@@ -5,6 +5,7 @@ const {
     parseSource,
     findHardcodedHitsInAst,
     findEnclosingComponentInAst,
+    findEnclosingSchemaInAst,
     inspectCodeContextAtPosition,
 } = require("../../src/ast");
 
@@ -402,6 +403,29 @@ const item = {
                 context.selectedText,
                 'Sub Product - ${formData["subProductName"]} is already exist'
             );
+        });
+
+        it("detects top-level schema/config objects and derives custom hook name", () => {
+            const code = `
+export const TradingTypeSchema: iSettingSchema = {
+    navigation: {
+        list: [
+            {
+                title: "Product Eligibility",
+            }
+        ]
+    }
+};
+`;
+            const { ast } = parseSource(code, "schema.ts");
+            assert.ok(ast);
+
+            const schema = findEnclosingSchemaInAst(ast, 5, code);
+            assert.ok(schema, "Should detect enclosing schema object");
+            assert.strictEqual(schema.varName, "TradingTypeSchema");
+            assert.strictEqual(schema.hookName, "useTradingTypeSchema");
+            assert.strictEqual(schema.isExport, true);
+            assert.strictEqual(schema.typeAnnotation, ": iSettingSchema");
         });
     });
 });
