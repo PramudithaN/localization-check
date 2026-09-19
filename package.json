@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",

@@ -340,6 +340,30 @@ function calculateSubTextLoc(loc, rawText, subText) {
 }
 
 /**
+ * Checks if an AST path is inside a technical spec, mapping, or field selector block
+ * (e.g. spec: { label: "batchTypeName", value: "id", extraFieldMappings: [...] }).
+ * @param {any} path
+ * @returns {boolean}
+ */
+function isInsideTechnicalSpec(path) {
+    let current = path.parentPath;
+    while (current) {
+        if (current.isObjectProperty()) {
+            const keyNode = current.node.key;
+            const name = keyNode.type === "Identifier" ? keyNode.name : (keyNode.type === "StringLiteral" ? keyNode.value : "");
+            if (/^(?:spec|selectSpec|lookupSpec|apiSpec|filterSpec|sortSpec|schemaSpec|tableSpec|formSpec|fieldNames|fieldMapping|extraFieldMappings|mapping|mappings|lookup|lookups|dataMapping|optionsSpec)$/i.test(name)) {
+                return true;
+            }
+        }
+        if (current.isJSXElement() || current.isFunctionDeclaration() || current.isClassDeclaration()) {
+            break;
+        }
+        current = current.parentPath;
+    }
+    return false;
+}
+
+/**
  * Traverses an AST and detects all hardcoded strings.
  * @param {any} ast
  * @param {any} [rules]
@@ -482,6 +506,9 @@ function findHardcodedHitsInAst(ast, rules = null, code = "") {
             }
 
             if (!propName || ignoredProps.has(propName.toLowerCase())) return;
+
+            // Skip technical spec / mapping blocks e.g. spec: { label: "batchTypeName", value: "id" }
+            if (isInsideTechnicalSpec(path)) return;
 
             if (path.node.value && path.node.value.type === "StringLiteral") {
                 const strNode = path.node.value;
@@ -726,6 +753,11 @@ function findHardcodedHitsInAst(ast, rules = null, code = "") {
                         return;
                     }
                 }
+            }
+
+            // Skip technical spec / mapping blocks
+            if (isInsideTechnicalSpec(path)) {
+                return;
             }
 
             // Skip technical function calls (e.g. console.log, fetch, axios, router.push, history.push, path.join)

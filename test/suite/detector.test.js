@@ -427,5 +427,32 @@ export const TradingTypeSchema: iSettingSchema = {
             assert.strictEqual(schema.isExport, true);
             assert.strictEqual(schema.typeAnnotation, ": iSettingSchema");
         });
+
+        it("never flags label or value properties inside technical spec or mapping blocks", () => {
+            const code = `
+export const SelectConfig = {
+    spec: {
+        api: (sdk: any) => () => sdk.TransactionInOutService.getBatchTypesByStatus("ACTIVE"),
+        label: "batchTypeName",
+        value: "id",
+        extraFieldMappings: [
+            {
+                value: "batchTypeDescription",
+                key: "batchTypeDescription",
+            },
+            {
+                value: "batchTypeCode",
+                key: "batchTypeCode",
+            },
+        ],
+    },
+};
+`;
+            const { ast } = parseSource(code, "spec.ts");
+            assert.ok(ast);
+
+            const hits = findHardcodedHitsInAst(ast, null, code);
+            assert.strictEqual(hits.length, 0, "Technical spec/mapping properties like label: 'batchTypeName' must never be flagged");
+        });
     });
 });
