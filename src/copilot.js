@@ -432,8 +432,9 @@ function injectHookIntoComponent(document, edit, componentInfo, hookStatement) {
 
 /**
  * Ensures required hook declarations and imports are present in the document.
- * ONLY injects `useTranslation` import if `useTranslation` hook is actively used, injected,
- * or when a top-level static schema is converted to a custom hook.
+ * ONLY injects `useTranslation` hook inside valid React functional components and custom hooks,
+ * never inside static schemas, plain objects, or module scope.
+ * ONLY injects `useTranslation` import if `useTranslation` hook is actively used or injected.
  * @param {import("vscode").TextDocument} document
  * @param {import("vscode").WorkspaceEdit} edit
  * @param {number[]} targetLines
@@ -450,15 +451,13 @@ async function ensureTranslationsInDocument(document, edit, targetLines, neededI
     const finalHook = neededHook && neededHook.trim() ? neededHook.trim() : setup.hookStatement;
 
     const docText = document.getText();
-    const { ast } = parseSource(docText, document.fileName);
     let hookInjectedOrPresent = /\buseTranslation\s*\(/.test(docText);
 
     if (finalHook && finalHook.trim()) {
         const seenComponents = new Set();
-        const seenSchemas = new Set();
 
         for (const line of targetLines) {
-            // 1. Check if inside an existing React Component or Hook function
+            // Check if inside an existing React Component or Hook function
             const comp = findEnclosingComponent(document, line);
             if (comp) {
                 if (!comp.hasT && !seenComponents.has(comp.bodyOpenLine)) {
@@ -468,42 +467,12 @@ async function ensureTranslationsInDocument(document, edit, targetLines, neededI
                 } else if (comp.hasT) {
                     hookInjectedOrPresent = true;
                 }
-                continue;
-            }
-
-            // 2. Check if inside a top-level static schema / config object
-            if (ast) {
-                const schema = findEnclosingSchemaInAst(ast, line, docText);
-                if (schema && !seenSchemas.has(schema.varName)) {
-                    seenSchemas.add(schema.varName);
-
-                    const exportPrefix = schema.isExport ? "export " : "";
-                    const rawType = schema.typeAnnotation
-                        ? (schema.typeAnnotation.startsWith(":") ? schema.typeAnnotation.slice(1).trim() : schema.typeAnnotation.trim())
-                        : "";
-                    const returnTypeStr = rawType ? `(): ${rawType} =>` : "() =>";
-
-                    const newHeader = `${exportPrefix}${schema.kind} ${schema.hookName} = ${returnTypeStr} {\n${schema.indent}${finalHook.trim()}\n\n${schema.indent}return `;
-
-                    const headerRange = new vscode.Range(
-                        schema.headerStartLine,
-                        schema.headerStartCol,
-                        schema.initStartLine,
-                        schema.initStartCol,
-                    );
-                    edit.replace(document.uri, headerRange, newHeader);
-
-                    const endPos = new vscode.Position(schema.declEndLine, schema.declEndCol);
-                    edit.insert(document.uri, endPos, "\n};");
-
-                    hookInjectedOrPresent = true;
-                }
             }
         }
     }
 
-    // 3. Inject import statement ONLY IF useTranslation hook is injected or already present
-    if (hookInjectedOrPresent) {
+    // Inject import statement ONLY IF useTranslation hook is injected or already present
+    if (hookInjectedOrPresent && finalImport && finalImport.trim()) {
         injectImportStatement(document, edit, finalImport);
     }
 }
@@ -553,6 +522,20 @@ async function localizeWithCopilot(document, range) {
             .map(([k, v]) => `  "${k}": "${v}"`)
             .join("\n");
 
+        const docText = document.getText();
+        const { ast } = parseSource(docText, document.fileName);
+        const enclosingComp = findEnclosingComponent(document, range.start.line);
+        const isInsideSchema = Boolean(ast && findEnclosingSchemaInAst(ast, range.start.line, docText));
+
+        const schemaContextNote = isInsideSchema && !enclosingComp
+            ? [
+                "CRITICAL ARCHITECTURAL CONTEXT: Target is inside a STATIC SCHEMA or CONFIGURATION OBJECT (outside any React Component).",
+                "- Strict prohibition: NEVER convert the schema or config object into a React hook. Set neededHook to '' and neededImport to ''.",
+                "- Do NOT use standalone i18n or i18n.t(...).",
+                "- For static schema properties (such as label, title, placeholder): do NOT replace with technical dot-notation keys (e.g. 'reports.branch') because without template evaluation the user would see the raw technical key instead of readable text. Keep human-readable text or natural keys.",
+              ].join("\n")
+            : "";
+
         const prompt = [
             `You are an expert internationalization (i18n) and localization assistant in a ${document.languageId} codebase.`,
             `Your task is to localize the hardcoded string: "${targetText}" by providing:`,
@@ -562,6 +545,7 @@ async function localizeWithCopilot(document, range) {
             `4. The standard i18n import: "import { useTranslation } from 'react-i18next';"`,
             `5. The standard hook declaration: "const { t } = useTranslation();"`,
             "",
+            schemaContextNote,
             dictContext.namespaces.length > 0
                 ? `Available dictionary namespaces in en.json: ${dictContext.namespaces.join(", ")}`
                 : "",
@@ -593,17 +577,17 @@ async function localizeWithCopilot(document, range) {
             ),
             "",
             "Strict Rules & Guidelines:",
-            "1. Strict Hook Requirement: You MUST strictly use 'const { t } = useTranslation();' from 'react-i18next'. Do NOT use any other hook or format (never use useTranslations, useIntl, or formatMessage).",
+            "1. React Components vs Static Schemas:",
+            "   - Inside React Components or Hooks: use 't(\"key\")' (or '{t(\"key\")}' in JSX) and provide neededHook: 'const { t } = useTranslation();'.",
+            "   - Outside React Components (Static Schemas, iSettingSchema, iReportSchema, tables, columns): NEVER use useTranslation or React hooks (set neededHook to '' and neededImport to ''). Never convert a static schema or config object into a React hook. Do NOT use standalone i18n. For static properties (label, title, placeholder), do NOT replace with raw technical dot-keys (e.g. 'reports.branch') that leak technical keys to end users; keep readable English or natural keys.",
             "2. Common Values & Deduplication: For common reusable action words and UI labels (such as Save, Cancel, Submit, Delete, Edit, Close, Back, Next, Search, Loading, OK, Yes, No, Update, Add, Remove, View, Actions, Status, Success, Error, Details, Filter, Help), you MUST assign a key under the 'common' namespace (e.g. 'common.save', 'common.cancel', 'common.submit', 'common.edit', 'common.delete', 'common.search', 'common.loading', 'common.ok', 'common.close') or reuse an existing key from the dictionary. Do NOT create duplicate keys for common values.",
-            "3. If the string is inside a React Component or Hook, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of the enclosing component).",
-            "4. If the string is in a top-level module constant, table columns array, or utility outside any React component (e.g. 'const columns = [...]'), use t('...') in the replacement and provide neededImport: 'import { useTranslation } from 'react-i18next';', but set neededHook to '' (empty string).",
-            "5. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
-            "6. Replacement Syntax:",
+            "3. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "4. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "7. Do NOT include surrounding property names or keys in 'replacement'.",
-            "8. Output valid JSON only with NO markdown fences or commentary.",
+            "5. Do NOT include surrounding property names or keys in 'replacement'.",
+            "6. Output valid JSON only with NO markdown fences or commentary.",
         ]
             .filter(Boolean)
             .join("\n");
@@ -747,10 +731,27 @@ async function localizeAllInDocument(document, diagnostics) {
             .map(([k, v]) => `  "${k}": "${v}"`)
             .join("\n");
 
+        const docText = document.getText();
+        const { ast } = parseSource(docText, document.fileName);
+        const hasSchemaItems = items.some(item => {
+            const comp = findEnclosingComponent(document, item.range.start.line);
+            return !comp && ast && findEnclosingSchemaInAst(ast, item.range.start.line, docText);
+        });
+
+        const schemaContextNote = hasSchemaItems
+            ? [
+                "CRITICAL ARCHITECTURAL CONTEXT: Some or all target items are inside STATIC SCHEMAS or CONFIGURATION OBJECTS (outside any React Component).",
+                "- Strict prohibition: NEVER convert static schemas or config objects into React hooks. Set neededHook to '' and neededImport to '' for non-component items.",
+                "- Do NOT use standalone i18n or i18n.t(...).",
+                "- For static schema properties (such as label, title, placeholder): do NOT replace with technical dot-notation keys (e.g. 'reports.branch') that leak technical keys to end users; keep readable English or natural keys.",
+              ].join("\n")
+            : "";
+
         const prompt = [
             `You are an expert internationalization (i18n) and localization assistant in a ${document.languageId} codebase.`,
             `Your task is to provide localization replacements for all ${items.length} hardcoded strings detected in the file, along with their dictionary keys for en.json, English values, and standard useTranslation hook declarations.`,
             "",
+            schemaContextNote,
             dictContext.namespaces.length > 0
                 ? `Available dictionary namespaces in en.json: ${dictContext.namespaces.join(", ")}`
                 : "",
@@ -788,16 +789,17 @@ async function localizeAllInDocument(document, diagnostics) {
             ),
             "",
             "Strict Rules & Guidelines:",
-            "1. Strict Hook Requirement: You MUST strictly use 'const { t } = useTranslation();' and 'import { useTranslation } from 'react-i18next';'. Do NOT use any other hook or format (never use useTranslations, useIntl, or formatMessage).",
+            "1. React Components vs Static Schemas:",
+            "   - Inside React Components or Hooks: use 't(\"key\")' and provide neededHook: 'const { t } = useTranslation();'.",
+            "   - Outside React Components (Static Schemas, iSettingSchema, iReportSchema, tables, columns): NEVER use useTranslation or React hooks (set neededHook to '' and neededImport to ''). Never convert a static schema or config object into a React hook. Do NOT use standalone i18n. For static properties (label, title, placeholder), do NOT replace with raw technical dot-keys (e.g. 'reports.branch') that leak technical keys to end users; keep readable English or natural keys.",
             "2. Common Values & Deduplication: For common reusable action words and UI labels (such as Save, Cancel, Submit, Delete, Edit, Close, Back, Next, Search, Loading, OK, Yes, No, Update, Add, Remove, View, Actions, Status, Success, Error, Details, Filter, Help), you MUST assign a key under the 'common' namespace (e.g. 'common.save', 'common.cancel', 'common.submit', 'common.edit', 'common.delete', 'common.search', 'common.loading', 'common.ok', 'common.close') or reuse an existing key from the dictionary. Do NOT create duplicate keys for common values.",
-            "3. If strings are inside React components or hooks, provide neededHook: 'const { t } = useTranslation();' (it will be injected at the top of enclosing component functions). If all strings are in module-level constants or non-components, set neededHook to '' (empty string).",
-            "4. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
-            "5. Replacement Syntax:",
+            "3. Notification & Toast Functions: In calls like showNotification(type, title, message) or showToast(type, message), the 1st argument (e.g. 'warn', 'warning', 'error', 'info', 'success') is the status type and MUST NOT be localized. Keep status strings as raw strings.",
+            "4. Replacement Syntax:",
             "   - In JS object properties (e.g. title: '...'): use t('key') WITHOUT outer JSX braces.",
             "   - In JSX children (e.g. >...<): use {t('key')}.",
             "   - In JSX attributes (e.g. placeholder='...'): use t('key').",
-            "6. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
-            "7. Ensure valid JSON syntax matching the schema.",
+            "5. Output ONLY the JSON object. Do NOT include markdown fences or commentary.",
+            "6. Ensure valid JSON syntax matching the schema.",
         ]
             .filter(Boolean)
             .join("\n");

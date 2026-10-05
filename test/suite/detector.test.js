@@ -454,5 +454,20 @@ export const SelectConfig = {
             const hits = findHardcodedHitsInAst(ast, null, code);
             assert.strictEqual(hits.length, 0, "Technical spec/mapping properties like label: 'batchTypeName' must never be flagged");
         });
+
+        it("ensures static schema definitions are not classified as React components", () => {
+            const code = `
+export const ApplicationFrequencySchema: iSettingSchema = {
+    navigation: {
+        title: "Application Frequency",
+    }
+};
+`;
+            const { ast } = parseSource(code, "schema.tsx");
+            assert.ok(ast);
+
+            const comp = findEnclosingComponentInAst(ast, 3);
+            assert.strictEqual(comp, null, "Static schema definitions must not be classified as React components");
+        });
     });
 });
