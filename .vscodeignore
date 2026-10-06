@@ -4,3 +4,5 @@
 .github/**
 test/**
 scripts/**
+*.pptx
+PRESENTATION.md

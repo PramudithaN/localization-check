@@ -147,7 +147,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.5.9.vsix
+code --install-extension localization-check-0.5.10.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.
@@ -168,3 +168,6 @@ The codebase is organized modularly under `src/`:
 - `src/commands.js`: Command handlers for manual scans, full workspace checks, Copilot localization, and unused key detection.
 - `src/rules.js`: Interactive rule learning, false positive management, and automated GitHub issue creation.
 - `package.json`: Extension manifest and configuration contribution settings.
+- `PROJECT_DOCUMENTATION.md`: Full architectural deep-dive, sequence diagrams, settings reference, and operational manual.
+- `PRESENTATION.md`: Executive slide deck notes, visual ASCII layouts, and 3-minute pitch demo script.
+- `Localization_Check_Presentation.pptx`: Ready-to-deliver PowerPoint presentation (16:9 light theme).

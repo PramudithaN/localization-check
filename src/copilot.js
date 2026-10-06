@@ -6,6 +6,7 @@ const {
     findEnclosingSchemaInAst,
 } = require("./ast");
 const {
+    findPrimaryDictionary,
     ensurePrimaryDictionary,
     getDictionaryContext,
     addEntriesToDictionaries,

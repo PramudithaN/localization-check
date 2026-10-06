@@ -5,8 +5,8 @@ const {
     DEFAULT_GITHUB_REPO,
     SOURCE_NAME,
 } = require("./constants");
-const { inspectCodeContextAtPosition } = require("./ast");
-const { scanAllOpenDocuments } = require("./diagnostics");
+const { parseSource, inspectCodeContextAtPosition } = require("./ast");
+const { scanDocument, scanAllOpenDocuments } = require("./diagnostics");
 
 /**
  * Creates a GitHub issue via the GitHub REST API using the user's authentication token.
