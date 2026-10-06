@@ -66,7 +66,7 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 {
   "localizationCheck.scriptPath": "scripts/check-localization.js",
   "localizationCheck.liveScan": true,
-  "localizationCheck.diagnosticSeverity": "error",
+  "localizationCheck.diagnosticSeverity": "warning",
   "localizationCheck.minimumConfidence": "low",
   "localizationCheck.liveScanOnlyChangedFiles": true,
   "localizationCheck.warnOnStage": true,
@@ -90,7 +90,7 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 
 - `localizationCheck.scriptPath`: optional relative path to a localization check script in the workspace root. Default: `"scripts/check-localization.js"`.
 - `localizationCheck.liveScan`: enables or disables live scanning. Default: `true`.
-- `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"error"` or `"warning"`. Default: `"error"`.
+- `localizationCheck.diagnosticSeverity`: controls whether matches appear as `"warning"` or `"error"`. Default: `"warning"`.
 - `localizationCheck.minimumConfidence`: minimum confidence required to flag hardcoded strings (`"low"`, `"medium"`, `"high"`). Default: `"high"`.
 - `localizationCheck.liveScanOnlyChangedFiles`: scans only changed files and unsaved buffers when enabled. Default: `true`.
 - `localizationCheck.warnOnStage`: displays a notification warning when files staged for commit contain unlocalized text. Default: `true`.
@@ -120,7 +120,7 @@ Add settings in your project's `.vscode/settings.json` when you want to customiz
 <button title="Submit now">Save</button>
 ```
 
-The extension should underline `Submit now` and `Save` as localization errors.
+The extension should underline `Submit now` and `Save` as localization warnings.
 
 Clean, unchanged files are ignored by default. To scan every open file, set:
 
@@ -147,7 +147,7 @@ vsce package
 3. Install the generated `.vsix` file:
 
 ```bash
-code --install-extension localization-check-0.5.10.vsix
+code --install-extension localization-check-0.5.11.vsix
 ```
 
 You can also install it from VS Code with **Extensions** > **...** > **Install from VSIX**.

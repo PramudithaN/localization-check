@@ -2,7 +2,7 @@
   "name": "localization-check",
   "displayName": "Localization Check",
   "description": "Flags hardcoded user-facing strings in changed JavaScript and TypeScript files",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "publisher": "localizationFinder",
   "repository": {
     "type": "git",
@@ -191,11 +191,11 @@
         "localizationCheck.diagnosticSeverity": {
           "type": "string",
           "enum": [
-            "error",
-            "warning"
+            "warning",
+            "error"
           ],
-          "default": "error",
-          "description": "Severity used for live diagnostics in the Problems panel. Use 'error' to make unlocalized text show as an error."
+          "default": "warning",
+          "description": "Severity used for live diagnostics in the Problems panel. Use 'warning' by default, or 'error' to make unlocalized text show as an error."
         },
         "localizationCheck.minimumConfidence": {
           "type": "string",

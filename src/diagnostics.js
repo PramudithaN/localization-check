@@ -16,11 +16,11 @@ const CONFIDENCE_LEVELS = {
 function getDiagnosticSeverity() {
     const configuredSeverity = vscode.workspace
         .getConfiguration(CONFIG_SECTION)
-        .get("diagnosticSeverity", "error");
+        .get("diagnosticSeverity", "warning");
 
-    return configuredSeverity === "warning"
-        ? vscode.DiagnosticSeverity.Warning
-        : vscode.DiagnosticSeverity.Error;
+    return configuredSeverity === "error"
+        ? vscode.DiagnosticSeverity.Error
+        : vscode.DiagnosticSeverity.Warning;
 }
 
 /**

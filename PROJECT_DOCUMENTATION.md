@@ -237,7 +237,7 @@ Settings can be specified in `.vscode/settings.json` (workspace level) or global
 {
   "localizationCheck.scriptPath": "scripts/check-localization.js",
   "localizationCheck.liveScan": true,
-  "localizationCheck.diagnosticSeverity": "error",
+  "localizationCheck.diagnosticSeverity": "warning",
   "localizationCheck.minimumConfidence": "high",
   "localizationCheck.liveScanOnlyChangedFiles": true,
   "localizationCheck.warnOnStage": true,
@@ -264,7 +264,7 @@ Settings can be specified in `.vscode/settings.json` (workspace level) or global
 | :--- | :--- | :--- | :--- |
 | `localizationCheck.scriptPath` | `string` | `"scripts/check-localization.js"` | Path to the workspace's standalone localization CLI script. |
 | `localizationCheck.liveScan` | `boolean` | `true` | Enables or disables live background scanning and squiggly underlines. |
-| `localizationCheck.diagnosticSeverity` | `string` | `"error"` | Severity level displayed in the Problems panel: `"error"` or `"warning"`. |
+| `localizationCheck.diagnosticSeverity` | `string` | `"warning"` | Severity level displayed in the Problems panel: `"warning"` or `"error"`. |
 | `localizationCheck.minimumConfidence` | `string` | `"high"` | Minimum confidence threshold required to flag strings: `"high"`, `"medium"`, or `"low"`. |
 | `localizationCheck.liveScanOnlyChangedFiles` | `boolean` | `true` | Restricts scanning to Git-changed files and unsaved editor buffers. |
 | `localizationCheck.warnOnStage` | `boolean` | `true` | Displays a warning notification when staged files contain hardcoded strings. |
